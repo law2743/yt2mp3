@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+__pycache__
+.pytest_cache
+tests
+*.mp3
+*.wav
+*.m4a
+*.webm
+yt2mp3-spec.md

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>YouTube 歌曲轉調工具</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body><main class="shell">
+  <header>
+    <p class="eyebrow">yt2mp3</p>
+    <h1>YouTube 歌曲轉調工具</h1>
+    <p class="lede">貼上你有權使用的 YouTube 影片網址，分析原調後選擇升降半音並輸出 MP3。</p>
+  </header>
+  <section class="card">
+    <form id="analyze-form">
+      <label for="url">YouTube 網址</label>
+      <div class="input-row">
+        <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+        <button type="submit">分析歌曲</button>
+      </div>
+    </form>
+    <p class="notice">請僅處理你擁有或已獲授權使用的內容。暫存檔案將於一小時後刪除。</p>
+  </section>
+  <section id="status" class="status hidden" aria-live="polite"></section>
+  <section id="result" class="card hidden"></section>
+</main><script src="/static/app.js" defer></script></body>
+</html>

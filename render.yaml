@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: yt2mp3
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SHIFT_RANGE
+        value: "3"
+      - key: JOB_TTL_MINUTES
+        value: "60"
+      - key: MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: WORK_ROOT
+        value: /tmp/yks
