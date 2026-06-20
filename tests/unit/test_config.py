@@ -9,6 +9,26 @@ def test_production_requires_secrets():
         Settings(app_env="production", app_password=None)
 
 
+def test_production_accepts_token_secret_and_exact_frontend_origin():
+    settings = Settings(
+        app_env="production",
+        app_password="password",
+        token_secret="x" * 32,
+        cors_allowed_origins="https://frontend.example, http://localhost:5500/",
+    )
+    assert settings.allowed_origins == ["https://frontend.example", "http://localhost:5500"]
+
+
+def test_cors_origin_rejects_wildcards_and_paths():
+    with pytest.raises(ValidationError):
+        Settings(
+            app_env="production", app_password="password", token_secret="x" * 32,
+            cors_allowed_origins="*",
+        )
+    with pytest.raises(ValueError):
+        Settings(cors_allowed_origins="https://frontend.example/path").allowed_origins
+
+
 def test_shift_range_is_restricted():
     with pytest.raises(ValidationError):
         Settings(shift_range=4)

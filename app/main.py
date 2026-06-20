@@ -3,25 +3,18 @@ from __future__ import annotations
 import logging
 import shutil
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api.auth import is_authenticated, router as auth_router
+from app.api.auth import router as auth_router
 from app.api.jobs import router as jobs_router
 from app.config import get_settings
 from app.errors import AppError, app_error_handler
 from app.services.job_manager import JobManager
-
-BASE_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
-
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
@@ -41,18 +34,26 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s level=%(levelname)s logger=%(name)s message=%(message)s",
 )
-app = FastAPI(title="yt2mp3", version=__version__, lifespan=lifespan)
+app = FastAPI(
+    title="yt2mp3",
+    version=__version__,
+    lifespan=lifespan,
+    docs_url=None if settings.app_env == "production" else "/docs",
+    redoc_url=None,
+)
 app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    same_site="lax",
-    https_only=settings.app_env == "production",
-    max_age=60 * 60 * 12,
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    allow_private_network=True,
+    expose_headers=["Content-Disposition"],
+    max_age=600,
 )
 app.add_exception_handler(AppError, app_error_handler)
 app.include_router(auth_router)
 app.include_router(jobs_router)
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 @app.middleware("http")
@@ -86,18 +87,9 @@ async def validation_error_handler(request: Request, _exc: RequestValidationErro
     )
 
 
-@app.get("/")
-async def index(request: Request):
-    if not is_authenticated(request, settings):
-        return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "index.html", {})
-
-
-@app.get("/login")
-async def login_page(request: Request):
-    if is_authenticated(request, settings):
-        return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"error": request.query_params.get("error")})
+@app.get("/", include_in_schema=False)
+async def api_root():
+    return {"service": "yt2mp3-api", "version": __version__}
 
 
 @app.get("/health")

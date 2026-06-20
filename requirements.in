@@ -1,8 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic-settings
-jinja2
-python-multipart
 itsdangerous
 yt-dlp[default]
 librosa

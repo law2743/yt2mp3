@@ -1,22 +1,21 @@
 services:
   - type: web
-    name: yt2mp3
-    runtime: docker
-    plan: starter
-    healthCheckPath: /health
+    name: yt2mp3-frontend
+    runtime: static
+    plan: free
+    buildCommand: bash scripts/build_frontend.sh
+    staticPublishPath: ./frontend
     autoDeploy: false
     envVars:
-      - key: APP_ENV
-        value: production
-      - key: APP_PASSWORD
+      - key: BACKEND_API_URL
         sync: false
-      - key: SESSION_SECRET
-        generateValue: true
-      - key: SHIFT_RANGE
-        value: "3"
-      - key: JOB_TTL_MINUTES
-        value: "60"
-      - key: MAX_CONCURRENT_JOBS
-        value: "1"
-      - key: WORK_ROOT
-        value: /tmp/yks
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

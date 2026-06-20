@@ -34,7 +34,7 @@ class LibrosaKeyAnalyzer:
         # chroma_stft is intentionally used instead of chroma_cqt. The latter
         # enters a numba gufunc during tuning estimation that is unstable on
         # some macOS arm64/Python 3.12 combinations. STFT chroma is deterministic,
-        # lighter on Render CPU, and sufficient for the global key profile.
+        # lighter on local CPU, and sufficient for the global key profile.
         chroma = librosa.feature.chroma_stft(
             y=harmonic, sr=sample_rate, n_fft=4096, hop_length=512, tuning=0.0
         )

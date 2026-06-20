@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,7 +14,11 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     app_password: str | None = None
-    session_secret: str = "development-only-secret-change-me"
+    token_secret: str = "development-only-token-secret-change-me"
+    access_token_ttl_minutes: int = Field(default=60, ge=5, le=1440)
+    cors_allowed_origins: str = "http://127.0.0.1:5500,http://localhost:5500"
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    login_failure_window_seconds: int = Field(default=60, ge=10, le=3600)
     shift_range: int = 3
     job_ttl_minutes: int = Field(default=60, ge=5, le=1440)
     max_video_duration_seconds: int = Field(default=900, ge=30, le=7200)
@@ -40,16 +45,32 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if not self.app_password:
                 raise ValueError("APP_PASSWORD is required in production")
-            if len(self.session_secret) < 32 or self.session_secret.startswith("development-"):
-                raise ValueError("SESSION_SECRET must contain at least 32 non-default characters")
+            if len(self.token_secret) < 32 or self.token_secret.startswith("development-"):
+                raise ValueError("TOKEN_SECRET must contain at least 32 non-default characters")
+            if not self.allowed_origins:
+                raise ValueError("CORS_ALLOWED_ORIGINS is required in production")
         return self
 
     @property
     def authentication_enabled(self) -> bool:
         return self.app_env == "production" or bool(self.app_password)
 
+    @property
+    def allowed_origins(self) -> list[str]:
+        origins: list[str] = []
+        for raw_origin in self.cors_allowed_origins.split(","):
+            origin = raw_origin.strip().rstrip("/")
+            if not origin:
+                continue
+            parsed = urlsplit(origin)
+            if origin == "*" or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("CORS_ALLOWED_ORIGINS must contain comma-separated HTTP origins")
+            if parsed.path or parsed.query or parsed.fragment:
+                raise ValueError("CORS_ALLOWED_ORIGINS entries cannot contain paths")
+            origins.append(origin)
+        return origins
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

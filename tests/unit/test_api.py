@@ -42,6 +42,23 @@ def test_oversized_body_is_rejected(tmp_path):
     assert response.json()["error"]["code"] == "REQUEST_TOO_LARGE"
 
 
+def test_cors_preflight_allows_configured_private_network_frontend(tmp_path):
+    app.dependency_overrides[get_settings] = lambda: make_settings(tmp_path)
+    with TestClient(app) as client:
+        response = client.options(
+            "/health",
+            headers={
+                "Origin": "http://localhost:5500",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5500"
+    assert response.headers["access-control-allow-private-network"] == "true"
+
+
 def test_invalid_schema_has_uniform_error(tmp_path):
     app.dependency_overrides[get_settings] = lambda: make_settings(tmp_path)
     with TestClient(app) as client:

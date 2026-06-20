@@ -40,8 +40,6 @@ idna==3.18
     #   requests
 itsdangerous==2.2.0
     # via -r requirements.in
-jinja2==3.1.6
-    # via -r requirements.in
 joblib==1.5.3
     # via
     #   librosa
@@ -52,8 +50,6 @@ librosa==0.11.0
     # via -r requirements.in
 llvmlite==0.47.0
     # via numba
-markupsafe==3.0.3
-    # via jinja2
 msgpack==1.2.1
     # via librosa
 mutagen==1.47.0
@@ -96,8 +92,6 @@ python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.32
-    # via -r requirements.in
 pyyaml==6.0.3
     # via uvicorn
 requests==2.34.2

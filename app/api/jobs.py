@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import uuid
-
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 
-from app.api.auth import is_authenticated
-from app.config import get_settings
+from app.api.auth import authenticated_owner
 from app.errors import AppError
 from app.models import AnalyzeRequest, TransposeRequest
 from app.services.files import safe_child, sanitize_filename
@@ -17,33 +14,35 @@ from app.services.youtube import canonicalize_youtube_url
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
-def _context(request: Request) -> tuple[JobManager, str]:
-    settings = get_settings()
-    if not is_authenticated(request, settings):
-        raise AppError(401, "AUTH_REQUIRED", "請先登入。")
-    owner_id = request.session.get("owner_id")
-    if not owner_id:
-        owner_id = str(uuid.uuid4())
-        request.session["owner_id"] = owner_id
+def _context(request: Request, owner_id: str) -> tuple[JobManager, str]:
     return request.app.state.job_manager, owner_id
 
 
 @router.post("/analyze", status_code=202)
-async def analyze(payload: AnalyzeRequest, request: Request):
-    manager, owner_id = _context(request)
+async def analyze(
+    payload: AnalyzeRequest,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
     job = await manager.create(owner_id, canonicalize_youtube_url(payload.url))
     return {"job_id": job.job_id, "status": job.status, "status_url": f"/api/jobs/{job.job_id}"}
 
 
 @router.get("/{job_id}")
-async def status(job_id: str, request: Request):
-    manager, owner_id = _context(request)
+async def status(job_id: str, request: Request, owner_id: str = Depends(authenticated_owner)):
+    manager, owner_id = _context(request, owner_id)
     return manager.public(manager.get(job_id, owner_id))
 
 
 @router.post("/{job_id}/transpose", status_code=202)
-async def transpose(job_id: str, payload: TransposeRequest, request: Request):
-    manager, owner_id = _context(request)
+async def transpose(
+    job_id: str,
+    payload: TransposeRequest,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
     job = manager.get(job_id, owner_id)
     cached = await manager.request_transpose(job, payload.semitones)
     assert job.analysis
@@ -57,8 +56,13 @@ async def transpose(job_id: str, payload: TransposeRequest, request: Request):
 
 
 @router.get("/{job_id}/download/{semitones}")
-async def download(job_id: str, semitones: int, request: Request):
-    manager, owner_id = _context(request)
+async def download(
+    job_id: str,
+    semitones: int,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
     job = manager.get(job_id, owner_id)
     path = job.outputs.get(semitones)
     if not path or not path.exists():
@@ -76,8 +80,12 @@ async def download(job_id: str, semitones: int, request: Request):
 
 
 @router.get("/{job_id}/thumbnail")
-async def thumbnail(job_id: str, request: Request):
-    manager, owner_id = _context(request)
+async def thumbnail(
+    job_id: str,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
     job = manager.get(job_id, owner_id)
     path = safe_child(job.root, "thumbnail.jpg")
     if not path.exists():
@@ -86,8 +94,11 @@ async def thumbnail(job_id: str, request: Request):
 
 
 @router.delete("/{job_id}", status_code=204)
-async def delete_job(job_id: str, request: Request):
-    manager, owner_id = _context(request)
+async def delete_job(
+    job_id: str,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
     await manager.delete(manager.get(job_id, owner_id))
     return Response(status_code=204)
-
