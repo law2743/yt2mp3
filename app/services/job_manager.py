@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.errors import AppError
-from app.models import ErrorDetail, JobPublic, JobStatus, KeyAnalysisResult, SourceInfo
+from app.models import ErrorDetail, JobPublic, JobStatus, KeyAnalysisResult, OutputInfo, SourceInfo
 from app.services.audio import prepare_analysis_audio, transpose_audio
 from app.services.files import safe_child
 from app.services.key_analyzer import LibrosaKeyAnalyzer
@@ -33,11 +33,13 @@ class Job:
     status: JobStatus = JobStatus.QUEUED
     stage: str = "queued"
     progress: int = 0
+    stage_progress: int | None = None
     source_info: SourceInfo | None = None
     source_path: Path | None = None
     analysis: KeyAnalysisResult | None = None
-    outputs: OrderedDict[int, Path] = field(default_factory=OrderedDict)
+    outputs: OrderedDict[tuple[int, int], Path] = field(default_factory=OrderedDict)
     active_shift: int | None = None
+    active_bitrate_kbps: int | None = None
     error: ErrorDetail | None = None
 
 
@@ -46,6 +48,7 @@ class QueueItem:
     job_id: str
     operation: str
     semitones: int | None = None
+    bitrate_kbps: int | None = None
 
 
 class JobManager:
@@ -123,12 +126,17 @@ class JobManager:
             raise AppError(404, "JOB_NOT_FOUND", "暫存工作不存在或已失效。")
         return job
 
-    async def request_transpose(self, job: Job, semitones: int) -> Path | None:
+    async def request_transpose(
+        self, job: Job, semitones: int, bitrate_kbps: int = 192,
+    ) -> Path | None:
         if semitones < -self.settings.shift_range or semitones > self.settings.shift_range:
             raise AppError(422, "INVALID_SHIFT", "請選擇畫面提供的升降半音數。")
-        existing = job.outputs.get(semitones)
+        if bitrate_kbps not in {128, 192, 256}:
+            raise AppError(422, "INVALID_BITRATE", "請選擇畫面提供的位元率。")
+        output_key = (semitones, bitrate_kbps)
+        existing = job.outputs.get(output_key)
         if existing and existing.exists():
-            job.outputs.move_to_end(semitones)
+            job.outputs.move_to_end(output_key)
             return existing
         if job.status == JobStatus.TRANSPOSING:
             raise AppError(409, "JOB_BUSY", "這首歌曲正在處理中，請稍候。", True)
@@ -139,9 +147,11 @@ class JobManager:
         job.status = JobStatus.TRANSPOSING
         job.stage = "queued_transpose"
         job.progress = 0
+        job.stage_progress = 0
         job.active_shift = semitones
+        job.active_bitrate_kbps = bitrate_kbps
         job.error = None
-        await self.queue.put(QueueItem(job.job_id, "transpose", semitones))
+        await self.queue.put(QueueItem(job.job_id, "transpose", semitones, bitrate_kbps))
         return None
 
     def public(self, job: Job) -> JobPublic:
@@ -160,13 +170,18 @@ class JobManager:
             status=job.status,
             stage=job.stage,
             progress=job.progress,
+            stage_progress=job.stage_progress,
             created_at=job.created_at,
             expires_at=job.expires_at,
             source=source,
             analysis=job.analysis,
             shift_options=options,
-            outputs=list(job.outputs),
+            outputs=[
+                OutputInfo(semitones=semitones, bitrate_kbps=bitrate)
+                for semitones, bitrate in job.outputs
+            ],
             active_shift=job.active_shift,
+            active_bitrate_kbps=job.active_bitrate_kbps,
             error=job.error,
         )
 
@@ -189,8 +204,10 @@ class JobManager:
                 if item.operation == "analyze":
                     operation = asyncio.create_task(self._analyze(job))
                 else:
-                    assert item.semitones is not None
-                    operation = asyncio.create_task(self._transpose(job, item.semitones))
+                    assert item.semitones is not None and item.bitrate_kbps is not None
+                    operation = asyncio.create_task(
+                        self._transpose(job, item.semitones, item.bitrate_kbps)
+                    )
                 self.running[job.job_id] = operation
                 await operation
             except asyncio.CancelledError:
@@ -222,7 +239,16 @@ class JobManager:
         job.status, job.stage, job.progress = JobStatus.FETCHING_METADATA, "fetching_metadata", 10
         job.source_info, _raw = await self.youtube.metadata(job.youtube_url)
         job.status, job.stage, job.progress = JobStatus.DOWNLOADING, "downloading", 30
-        job.source_path = await self.youtube.download(job.youtube_url, job.root)
+        job.stage_progress = 0
+
+        def update_download_progress(percent: int) -> None:
+            job.stage_progress = percent
+            job.progress = max(job.progress, 30 + round(percent * 0.24))
+
+        job.source_path = await self.youtube.download(
+            job.youtube_url, job.root, progress_callback=update_download_progress,
+        )
+        job.stage_progress = None
         job.status, job.stage, job.progress = JobStatus.PREPARING_AUDIO, "preparing_audio", 55
         analysis_audio = await prepare_analysis_audio(job.source_path, job.root, self.settings)
         job.status, job.stage, job.progress = JobStatus.ANALYZING, "detecting_key", 75
@@ -236,21 +262,31 @@ class JobManager:
         analysis_audio.unlink(missing_ok=True)
         job.status, job.stage, job.progress = JobStatus.READY, "awaiting_selection", 100
 
-    async def _transpose(self, job: Job, semitones: int) -> None:
+    async def _transpose(self, job: Job, semitones: int, bitrate_kbps: int) -> None:
         assert job.analysis and job.source_info and job.source_path
         job.stage, job.progress = "transposing", 40
+
+        def update_transpose_progress(percent: int) -> None:
+            job.stage_progress = percent
+            job.progress = percent
+
         target_key = display_key(job.analysis.root_index + semitones, job.analysis.mode)
         output = await transpose_audio(
             job.source_path, job.root, semitones, job.source_info.title,
             job.source_info.uploader, target_key, self.settings,
+            bitrate_kbps=bitrate_kbps,
+            progress_callback=update_transpose_progress,
         )
-        job.outputs[semitones] = output
-        job.outputs.move_to_end(semitones)
+        output_key = (semitones, bitrate_kbps)
+        job.outputs[output_key] = output
+        job.outputs.move_to_end(output_key)
         while len(job.outputs) > 2:
             _old_shift, old_path = job.outputs.popitem(last=False)
             old_path.unlink(missing_ok=True)
         job.status, job.stage, job.progress = JobStatus.COMPLETED, "completed", 100
+        job.stage_progress = None
         job.active_shift = None
+        job.active_bitrate_kbps = None
 
     def _is_terminal(self, job: Job) -> bool:
         return job.status in {

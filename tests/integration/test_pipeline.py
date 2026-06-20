@@ -20,7 +20,9 @@ class FakeYouTube:
             duration_seconds=8,
         ), {}
 
-    async def download(self, _url, job_root: Path):
+    async def download(self, _url, job_root: Path, progress_callback=None):
+        if progress_callback:
+            progress_callback(100)
         sample_rate = 22050
         chunks = []
         for root in (0, 5, 7, 0):
@@ -53,9 +55,9 @@ async def test_mocked_end_to_end_pipeline(tmp_path):
         await manager.request_transpose(job, 1)
         await asyncio.wait_for(manager.queue.join(), 90)
         assert job.status == JobStatus.COMPLETED
-        assert job.outputs[1].stat().st_size > 0
+        assert job.outputs[(1, 192)].stat().st_size > 0
 
         cached = await manager.request_transpose(job, 1)
-        assert cached == job.outputs[1]
+        assert cached == job.outputs[(1, 192)]
     finally:
         await manager.stop()

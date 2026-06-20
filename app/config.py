@@ -40,6 +40,13 @@ class Settings(BaseSettings):
             raise ValueError("SHIFT_RANGE must be 2 or 3")
         return value
 
+    @field_validator("ytdlp_cookies_file", mode="before")
+    @classmethod
+    def empty_cookies_path_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         if self.app_env == "production":

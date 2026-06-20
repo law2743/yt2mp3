@@ -7,7 +7,7 @@ from app.main import app
 
 
 def make_settings(tmp_path: Path) -> Settings:
-    return Settings(app_env="test", work_root=tmp_path)
+    return Settings(app_env="test", app_password=None, work_root=tmp_path)
 
 
 def test_health_does_not_expose_paths(tmp_path):

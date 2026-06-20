@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from pathlib import Path
 
 from app.config import Settings
@@ -53,27 +55,54 @@ async def transpose_audio(
     uploader: str | None,
     target_key: str,
     settings: Settings,
+    bitrate_kbps: int = 192,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> Path:
     output_dir = safe_child(job_root, "output")
     output_dir.mkdir(exist_ok=True)
-    output = safe_child(output_dir, f"shift_{semitones}.mp3")
+    output = safe_child(output_dir, f"shift_{semitones}_{bitrate_kbps}k.mp3")
     pcm = safe_child(job_root, "transpose_source.wav")
     shifted = safe_child(job_root, f"shifted_{semitones}.wav")
     thumbnail = safe_child(job_root, "thumbnail.jpg")
 
+    def report(percent: int) -> None:
+        if progress_callback:
+            progress_callback(min(100, max(0, percent)))
+
     try:
+        report(2)
         await run_process(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
              "-vn", "-ar", "44100", "-c:a", "pcm_s24le", str(pcm)],
             timeout=settings.transpose_timeout_seconds,
         )
+        report(15 if semitones else 55)
         input_audio = pcm
         if semitones:
+            rubberband_pass = 1
+
+            def rubberband_progress(line: str) -> None:
+                nonlocal rubberband_pass
+                if "Pass 1:" in line:
+                    rubberband_pass = 1
+                elif "Pass 2:" in line:
+                    rubberband_pass = 2
+                match = re.fullmatch(r"\s*(\d{1,3})%\s*", line)
+                if not match:
+                    return
+                percent = min(100, int(match.group(1)))
+                if rubberband_pass == 1:
+                    report(15 + round(percent * 0.35))
+                else:
+                    report(50 + round(percent * 0.40))
+
             await run_process(
                 ["rubberband", "-3", "-p", str(semitones), str(pcm), str(shifted)],
                 timeout=settings.transpose_timeout_seconds,
+                stderr_line_callback=rubberband_progress,
             )
             input_audio = shifted
+            report(90)
 
         shift_text = "原調" if semitones == 0 else f"{'升' if semitones > 0 else '降'}{abs(semitones)}半音"
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(input_audio)]
@@ -81,14 +110,16 @@ async def transpose_audio(
             command.extend(["-i", str(thumbnail), "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg",
                             "-disposition:v", "attached_pic"])
         command.extend([
-            "-c:a", "libmp3lame", "-q:a", "0", "-ar", "44100",
+            "-c:a", "libmp3lame", "-b:a", f"{bitrate_kbps}k", "-ar", "44100",
             "-metadata", f"title={title} [{shift_text}・{target_key}]",
             "-metadata", f"artist={uploader or ''}",
             "-metadata", "comment=Transposed by yt2mp3",
             str(output),
         ])
         await run_process(command, timeout=settings.transpose_timeout_seconds)
+        report(98)
         await probe_audio(output, settings)
+        report(100)
     except ProcessTimedOut as exc:
         raise AppError(504, "PROCESS_TIMEOUT", "轉調時間超過限制。", True) from exc
     except ProcessFailed as exc:

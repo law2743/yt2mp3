@@ -21,6 +21,7 @@ async def test_pitch_shift_frequency_duration_and_metadata(tmp_path):
 
     output = await transpose_audio(
         source, tmp_path, 1, "A440 fixture", "Tests", "Bb Major", settings,
+        bitrate_kbps=192,
     )
     audio, rate = librosa.load(output, sr=sample_rate, mono=True)
     spectrum = np.abs(np.fft.rfft(audio))
@@ -39,3 +40,4 @@ async def test_pitch_shift_frequency_duration_and_metadata(tmp_path):
     assert normalized["title"] == "A440 fixture [升1半音・Bb Major]"
     assert normalized["artist"] == "Tests"
 
+    assert output.name == "shift_1_192k.mp3"

@@ -442,7 +442,8 @@ Request：
 
 ```json
 {
-  "semitones": -2
+  "semitones": -2,
+  "bitrate_kbps": 192
 }
 ```
 
@@ -453,7 +454,8 @@ Response `202 Accepted`：
   "job_id": "uuid-v4",
   "status": "transposing",
   "semitones": -2,
-  "target_key": "D Major"
+  "target_key": "D Major",
+  "bitrate_kbps": 192
 }
 ```
 
@@ -461,12 +463,13 @@ Response `202 Accepted`：
 
 - job 必須為 `ready`、`completed` 或可再次轉調的狀態。
 - `semitones` 必須為整數且位於 `-SHIFT_RANGE` 至 `+SHIFT_RANGE`。
+- `bitrate_kbps` 必須為 `128`、`192` 或 `256`。
 - 來源檔案必須存在且未過期。
 - 正在轉調時回傳 `409 JOB_BUSY`，不可同時啟動第二個轉調。
 
 ### 8.4 下載
 
-`GET /api/jobs/{job_id}/download/{semitones}`
+`GET /api/jobs/{job_id}/download/{semitones}?bitrate_kbps=192`
 
 - 僅 job 擁有已完成的指定版本時可下載。
 - 回傳 `Content-Type: audio/mpeg`。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -14,6 +15,7 @@ from app.services.process import ProcessFailed, ProcessTimedOut, run_process
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+PROGRESS_RE = re.compile(r"yt2mp3-progress:\s*([0-9]+(?:\.[0-9]+)?)%")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,14 +102,32 @@ class YouTubeAdapter:
         )
         return source, raw
 
-    async def download(self, url: CanonicalYouTubeUrl, job_root: Path) -> Path:
+    async def download(
+        self,
+        url: CanonicalYouTubeUrl,
+        job_root: Path,
+        progress_callback: Callable[[int], None] | None = None,
+    ) -> Path:
         output_template = str(safe_child(job_root, "source.%(ext)s"))
         args = self._base_args() + [
+            "--newline", "--no-color", "--progress-template",
+            "download:yt2mp3-progress:%(progress._percent_str)s",
             "-f", "bestaudio/best", "--max-filesize", f"{self.settings.max_source_mb}M",
             "--write-thumbnail", "--convert-thumbnails", "jpg", "-o", output_template, url.url,
         ]
+
+        def report_progress(line: str) -> None:
+            match = PROGRESS_RE.search(line)
+            if match and progress_callback:
+                progress_callback(min(100, max(0, round(float(match.group(1))))))
+
         try:
-            await run_process(args, timeout=self.settings.download_timeout_seconds)
+            await run_process(
+                args,
+                timeout=self.settings.download_timeout_seconds,
+                stdout_line_callback=report_progress,
+                stderr_line_callback=report_progress,
+            )
         except ProcessTimedOut as exc:
             raise AppError(504, "PROCESS_TIMEOUT", "下載音訊超過時間限制。", True) from exc
         except ProcessFailed as exc:

@@ -1,8 +1,10 @@
 services:
   backend:
+    container_name: yt2mp3-backend
+    image: yt2mp3-backend:latest
     build: .
     env_file: .env
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8000"
     restart: unless-stopped
     init: true

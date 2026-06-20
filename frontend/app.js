@@ -46,6 +46,36 @@ function showStatus(message, kind = "") {
   statusBox.textContent = message;
 }
 
+function showStageProgress(message, percent) {
+  const safePercent = Math.min(100, Math.max(0, Number(percent) || 0));
+  statusBox.className = "status";
+  statusBox.innerHTML = `
+    <div class="progress-head"><span>${escapeHtml(message)}</span><strong>${safePercent}%</strong></div>
+    <div class="progress-track" role="progressbar" aria-label="工作進度"
+      aria-valuemin="0" aria-valuemax="100" aria-valuenow="${safePercent}">
+      <span style="width:${safePercent}%"></span>
+    </div>`;
+}
+
+function elapsedText(createdAt) {
+  const startedAt = Date.parse(createdAt || "");
+  if (!Number.isFinite(startedAt)) return "";
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (elapsedSeconds < 60) return `已處理 ${elapsedSeconds} 秒`;
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return `已處理 ${minutes} 分 ${seconds} 秒`;
+}
+
+function showProcessingStatus(message, createdAt = null) {
+  const elapsed = elapsedText(createdAt);
+  statusBox.className = "status processing-status";
+  statusBox.innerHTML = `
+    <span class="processing-spinner" aria-hidden="true"></span>
+    <span><strong>${escapeHtml(message)}</strong>
+    <small>${escapeHtml(elapsed || "後台正在持續處理，請保留此頁面")}</small></span>`;
+}
+
 async function authenticatedFetch(path, options = {}) {
   const accessToken = token();
   if (!accessToken) throw new Error("請先登入。");
@@ -96,7 +126,13 @@ async function poll(jobId) {
   clearPoll();
   try {
     const job = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
-    showStatus(stageLabels[job.stage] || "正在處理…");
+    const stageLabel = stageLabels[job.stage] || "正在處理…";
+    if (["downloading", "transposing"].includes(job.stage)) {
+      showStageProgress(stageLabel, job.stage_progress);
+    } else if (["queued", "fetching_metadata", "preparing_audio", "detecting_key", "queued_transpose"].includes(job.stage)) {
+      showProcessingStatus(stageLabel, job.created_at);
+    }
+    else showStatus(stageLabel);
     if (job.status === "failed") {
       showStatus(job.error?.message || "處理失敗。", "error");
       return;
@@ -129,6 +165,16 @@ function formatDuration(seconds) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function estimatedMp3Size(seconds, bitrateKbps) {
+  const bytes = (seconds * bitrateKbps * 1000 / 8) + (64 * 1024);
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function selectedBitrate() {
+  return Number(resultBox.querySelector('input[name="bitrate"]:checked')?.value || 192);
+}
+
 async function loadThumbnail(path) {
   const image = resultBox.querySelector("[data-thumbnail]");
   if (!image || !path) return;
@@ -149,14 +195,29 @@ async function renderResult(job) {
   const analysis = job.analysis;
   const alternatives = analysis.candidates.slice(1)
     .map((item) => `${escapeHtml(item.key)} ${Math.round(item.score * 100)}%`).join("、") || "無";
-  const buttons = job.shift_options.map((option) => `
-    <button class="shift-button" type="button" data-shift="${option.semitones}">
-      <span>${escapeHtml(option.label)}</span><strong>${escapeHtml(option.target_key)}</strong>
-    </button>`).join("");
-  const downloads = job.outputs.map((shift) => {
-    const option = job.shift_options.find((item) => item.semitones === shift);
-    return `<button class="download" type="button" data-download="${shift}">
-      下載 ${escapeHtml(option.label)}・${escapeHtml(option.target_key)} MP3
+  const buttons = [...job.shift_options]
+    .sort((left, right) => left.semitones - right.semitones)
+    .map((option) => `
+      <div class="shift-option">
+        <span class="shift-label">${escapeHtml(option.label)}</span>
+        <button class="shift-button${option.semitones === 0 ? " is-original" : ""}"
+          type="button" data-shift="${option.semitones}"
+          aria-label="${escapeHtml(`${option.label}，${option.target_key}`)}">
+          <span class="shift-button-label">${escapeHtml(option.label)}</span>
+          <strong>${escapeHtml(option.target_key)}</strong>
+        </button>
+      </div>`).join("");
+  const bitrateOptions = [128, 192, 256].map((bitrate) => `
+    <label class="bitrate-option">
+      <input type="radio" name="bitrate" value="${bitrate}"${bitrate === 192 ? " checked" : ""}>
+      <span><strong>${bitrate} kbps</strong>
+      <small>預估 ${estimatedMp3Size(source.duration_seconds, bitrate)}</small></span>
+    </label>`).join("");
+  const downloads = job.outputs.map((output) => {
+    const option = job.shift_options.find((item) => item.semitones === output.semitones);
+    return `<button class="download" type="button" data-download="${output.semitones}"
+      data-bitrate="${output.bitrate_kbps}">
+      下載 ${escapeHtml(option.label)}・${escapeHtml(option.target_key)}・${output.bitrate_kbps} kbps MP3
     </button>`;
   }).join("");
   resultBox.innerHTML = `
@@ -168,31 +229,39 @@ async function renderResult(job) {
     <div class="key-summary"><div><span>原調</span><strong>${escapeHtml(analysis.key || analysis.display_name)}</strong></div>
       <div><span>可信度</span><strong>${Math.round(analysis.confidence * 100)}%</strong></div></div>
     <p>${confidenceText(analysis.confidence)}</p><p class="muted">其他可能：${alternatives}</p>
+    <fieldset class="bitrate-picker">
+      <legend>下載位元率</legend>
+      <div class="bitrate-options">${bitrateOptions}</div>
+    </fieldset>
     <div class="shift-grid" aria-label="轉調選項">${buttons}</div>
     <div class="downloads">${downloads}</div>`;
   resultBox.classList.remove("hidden");
   resultBox.querySelectorAll(".shift-button").forEach((button) => {
-    button.addEventListener("click", () => startTranspose(job.job_id, Number(button.dataset.shift)));
+    button.addEventListener("click", () => startTranspose(
+      job.job_id, Number(button.dataset.shift), selectedBitrate(),
+    ));
   });
   resultBox.querySelectorAll("[data-download]").forEach((button) => {
-    button.addEventListener("click", () => downloadMp3(job.job_id, Number(button.dataset.download), button));
+    button.addEventListener("click", () => downloadMp3(
+      job.job_id, Number(button.dataset.download), Number(button.dataset.bitrate), button,
+    ));
   });
   await loadThumbnail(source.thumbnail_url);
 }
 
-async function startTranspose(jobId, semitones) {
-  resultBox.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+async function startTranspose(jobId, semitones, bitrateKbps) {
+  resultBox.querySelectorAll("button,input").forEach((control) => { control.disabled = true; });
   showStatus("正在建立轉調工作…");
   try {
     const response = await request(`/api/jobs/${encodeURIComponent(jobId)}/transpose`, {
-      method: "POST", body: JSON.stringify({ semitones }),
+      method: "POST", body: JSON.stringify({ semitones, bitrate_kbps: bitrateKbps }),
     });
     pollCount = 0;
     await poll(jobId);
     if (response.cached) showStatus("已使用先前完成的 MP3。", "success");
   } catch (error) {
     showStatus(error.message, "error");
-    resultBox.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    resultBox.querySelectorAll("button,input").forEach((control) => { control.disabled = false; });
   }
 }
 
@@ -203,13 +272,14 @@ function responseFilename(response) {
   return disposition.match(/filename="?([^";]+)"?/i)?.[1] || "yt2mp3.mp3";
 }
 
-async function downloadMp3(jobId, semitones, button) {
+async function downloadMp3(jobId, semitones, bitrateKbps, button) {
   button.disabled = true;
   const originalText = button.textContent;
   button.textContent = "正在下載…";
   try {
     const response = await authenticatedFetch(
-      `/api/jobs/${encodeURIComponent(jobId)}/download/${semitones}`,
+      `/api/jobs/${encodeURIComponent(jobId)}/download/${semitones}`
+        + `?bitrate_kbps=${encodeURIComponent(bitrateKbps)}`,
     );
     const objectUrl = URL.createObjectURL(await response.blob());
     const link = document.createElement("a");
@@ -231,7 +301,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearPoll();
   resultBox.classList.add("hidden");
-  showStatus("正在建立分析工作…");
+  showProcessingStatus("正在建立分析工作…");
   try {
     const response = await request("/api/jobs/analyze", {
       method: "POST", body: JSON.stringify({ url: urlInput.value.trim() }),

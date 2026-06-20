@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
+import re
 import signal
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +33,8 @@ async def run_process(
     *,
     timeout: float,
     cwd: Path | None = None,
+    stdout_line_callback: Callable[[str], None] | None = None,
+    stderr_line_callback: Callable[[str], None] | None = None,
 ) -> ProcessResult:
     if not args:
         raise ValueError("command cannot be empty")
@@ -40,8 +45,41 @@ async def run_process(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    async def read_stream(
+        stream: asyncio.StreamReader,
+        callback: Callable[[str], None] | None,
+    ) -> bytes:
+        chunks: list[bytes] = []
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        pending = ""
+        while chunk := await stream.read(1024):
+            chunks.append(chunk)
+            if callback:
+                parts = re.split(r"[\r\n]+", pending + decoder.decode(chunk))
+                pending = parts.pop()
+                for part in parts:
+                    if part:
+                        callback(part)
+        if callback:
+            pending += decoder.decode(b"", final=True)
+            if pending:
+                callback(pending)
+        return b"".join(chunks)
+
+    async def communicate() -> tuple[bytes, bytes]:
+        if not stdout_line_callback and not stderr_line_callback:
+            return await process.communicate()
+        assert process.stdout and process.stderr
+        stdout_bytes, stderr_bytes = await asyncio.gather(
+            read_stream(process.stdout, stdout_line_callback),
+            read_stream(process.stderr, stderr_line_callback),
+        )
+        while process.returncode is None:
+            await asyncio.sleep(0.001)
+        return stdout_bytes, stderr_bytes
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout)
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(communicate(), timeout)
     except asyncio.TimeoutError as exc:
         await _terminate_group(process)
         raise ProcessTimedOut(f"{Path(args[0]).name} exceeded {timeout:.0f}s timeout") from exc
@@ -71,4 +109,3 @@ async def _terminate_group(process: asyncio.subprocess.Process) -> None:
         except ProcessLookupError:
             pass
         await process.wait()
-

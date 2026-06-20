@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api.auth import authenticated_owner
@@ -44,13 +44,14 @@ async def transpose(
 ):
     manager, owner_id = _context(request, owner_id)
     job = manager.get(job_id, owner_id)
-    cached = await manager.request_transpose(job, payload.semitones)
+    cached = await manager.request_transpose(job, payload.semitones, payload.bitrate_kbps)
     assert job.analysis
     return {
         "job_id": job.job_id,
         "status": "completed" if cached else job.status,
         "semitones": payload.semitones,
         "target_key": display_key(job.analysis.root_index + payload.semitones, job.analysis.mode),
+        "bitrate_kbps": payload.bitrate_kbps,
         "cached": cached is not None,
     }
 
@@ -60,17 +61,22 @@ async def download(
     job_id: str,
     semitones: int,
     request: Request,
+    bitrate_kbps: int = Query(default=192),
     owner_id: str = Depends(authenticated_owner),
 ):
     manager, owner_id = _context(request, owner_id)
     job = manager.get(job_id, owner_id)
-    path = job.outputs.get(semitones)
+    if bitrate_kbps not in {128, 192, 256}:
+        raise AppError(422, "INVALID_BITRATE", "請選擇畫面提供的位元率。")
+    path = job.outputs.get((semitones, bitrate_kbps))
     if not path or not path.exists():
         raise AppError(404, "OUTPUT_NOT_FOUND", "指定的轉調檔案不存在或已失效。")
     assert job.source_info and job.analysis
     target = display_key(job.analysis.root_index + semitones, job.analysis.mode)
     shift = "original" if semitones == 0 else f"{'up' if semitones > 0 else 'down'}-{abs(semitones)}"
-    filename = sanitize_filename(f"{job.source_info.title}_{shift}_{target}") + ".mp3"
+    filename = sanitize_filename(
+        f"{job.source_info.title}_{shift}_{target}_{bitrate_kbps}kbps"
+    ) + ".mp3"
     return FileResponse(
         path,
         media_type="audio/mpeg",

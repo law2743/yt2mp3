@@ -32,3 +32,7 @@ def test_cors_origin_rejects_wildcards_and_paths():
 def test_shift_range_is_restricted():
     with pytest.raises(ValidationError):
         Settings(shift_range=4)
+
+
+def test_empty_ytdlp_cookies_path_is_unset():
+    assert Settings(ytdlp_cookies_file="").ytdlp_cookies_file is None

@@ -21,6 +21,15 @@ button:disabled { cursor:wait; opacity:.5; }
 .notice { margin:14px 0 0; font-size:.88rem; }
 .error { color:var(--danger); }
 .success { border-color:var(--accent); }
+.progress-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.progress-head strong { color:var(--accent); font-variant-numeric:tabular-nums; }
+.progress-track { height:10px; margin-top:12px; overflow:hidden; background:#0e1118; border:1px solid var(--line); border-radius:999px; }
+.progress-track span { display:block; width:0; height:100%; background:linear-gradient(90deg,var(--accent),#b4f4dd); border-radius:inherit; transition:width .25s ease; }
+.processing-status { display:flex; align-items:center; gap:14px; }
+.processing-status > span:last-child { display:grid; }
+.processing-status small { margin-top:2px; color:var(--muted); }
+.processing-spinner { width:28px; height:28px; flex:0 0 28px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:processing-spin .8s linear infinite; }
+@keyframes processing-spin { to { transform:rotate(360deg); } }
 .hidden { display:none; }
 .song-head { display:grid; grid-template-columns:160px 1fr; gap:20px; align-items:center; }
 .song-head img { display:block; width:160px; aspect-ratio:16/9; object-fit:cover; border-radius:12px; }
@@ -31,10 +40,35 @@ h2 { margin:0; line-height:1.25; }
 .key-summary span,.key-summary strong { display:block; }
 .key-summary span { color:var(--muted); font-size:.85rem; }
 .key-summary strong { font-size:1.35rem; }
-.shift-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:24px; }
-.shift-button { display:flex; justify-content:space-between; align-items:center; gap:12px; background:#222a37; color:var(--text); border:1px solid var(--line); text-align:left; }
+.bitrate-picker { margin:22px 0 0; padding:0; border:0; }
+.bitrate-picker legend { margin-bottom:9px; font-weight:700; }
+.bitrate-options { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.bitrate-option { display:flex; min-width:0; margin:0; padding:12px 14px; align-items:center; gap:10px; background:#10141d; border:1px solid var(--line); border-radius:12px; cursor:pointer; }
+.bitrate-option:has(input:checked) { background:color-mix(in srgb,var(--accent) 12%,#10141d); border-color:var(--accent); }
+.bitrate-option input { width:18px; min-height:18px; margin:0; accent-color:var(--accent); }
+.bitrate-option span,.bitrate-option strong,.bitrate-option small { display:block; }
+.bitrate-option strong { line-height:1.25; }
+.bitrate-option small { margin-top:2px; color:var(--muted); font-size:.78rem; white-space:nowrap; }
+.shift-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; margin-top:24px; }
+.shift-option { display:grid; grid-template-rows:40px 56px; gap:7px; min-width:0; }
+.shift-label { display:flex; align-items:flex-end; justify-content:center; color:var(--muted); font-size:.78rem; line-height:1.2; text-align:center; }
+.shift-button { display:flex; width:100%; min-width:0; min-height:56px; padding:7px 5px; justify-content:center; align-items:center; background:#222a37; color:var(--text); border:1px solid var(--line); text-align:center; }
+.shift-button strong { font-size:clamp(.75rem,1.4vw,1rem); line-height:1.2; }
+.shift-button-label { display:none; }
 .shift-button:hover { border-color:var(--accent); }
+.shift-button.is-original { background:color-mix(in srgb,var(--accent) 18%,#222a37); border-color:var(--accent); }
 .downloads { display:grid; gap:10px; margin-top:20px; }
 .download { display:block; width:100%; padding:13px 16px; background:var(--accent); color:#07110e; font-weight:800; text-align:center; }
 @media (max-width:640px) { .shell { padding:36px 0; } .page-header { display:block; } .input-row { grid-template-columns:1fr; } button { width:100%; } .compact { width:auto; } }
-@media (max-width:640px) { .song-head { grid-template-columns:1fr; } .song-head img { width:100%; } .shift-grid { grid-template-columns:1fr; } }
+@media (max-width:640px) {
+  .song-head { grid-template-columns:1fr; }
+  .song-head img { width:100%; }
+  .bitrate-options { grid-template-columns:1fr; }
+  .shift-grid { grid-template-columns:1fr; gap:10px; overflow:visible; padding-bottom:0; }
+  .shift-option { display:block; }
+  .shift-label { display:none; }
+  .shift-button { min-height:48px; padding:0 20px; justify-content:space-between; gap:12px; text-align:left; }
+  .shift-button-label { display:inline; font-weight:400; }
+  .shift-button strong { font-size:1rem; }
+}
+@media (prefers-reduced-motion:reduce) { .processing-spinner { animation-duration:1.8s; } }

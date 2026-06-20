@@ -27,6 +27,7 @@ class AnalyzeRequest(BaseModel):
 
 class TransposeRequest(BaseModel):
     semitones: int = Field(strict=True)
+    bitrate_kbps: Literal[128, 192, 256] = 192
 
 
 class KeyCandidate(BaseModel):
@@ -69,16 +70,23 @@ class ErrorDetail(BaseModel):
     retryable: bool = False
 
 
+class OutputInfo(BaseModel):
+    semitones: int
+    bitrate_kbps: Literal[128, 192, 256]
+
+
 class JobPublic(BaseModel):
     job_id: str
     status: JobStatus
     stage: str
     progress: int = Field(ge=0, le=100)
+    stage_progress: int | None = Field(default=None, ge=0, le=100)
     created_at: datetime
     expires_at: datetime
     source: SourceInfo | None = None
     analysis: KeyAnalysisResult | None = None
     shift_options: list[ShiftOption] | None = None
-    outputs: list[int] = Field(default_factory=list)
+    outputs: list[OutputInfo] = Field(default_factory=list)
     active_shift: int | None = None
+    active_bitrate_kbps: Literal[128, 192, 256] | None = None
     error: ErrorDetail | None = None
