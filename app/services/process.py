@@ -45,6 +45,7 @@ async def run_process(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+
     async def read_stream(
         stream: asyncio.StreamReader,
         callback: Callable[[str], None] | None,
@@ -67,13 +68,14 @@ async def run_process(
         return b"".join(chunks)
 
     async def communicate() -> tuple[bytes, bytes]:
-        if not stdout_line_callback and not stderr_line_callback:
-            return await process.communicate()
         assert process.stdout and process.stderr
         stdout_bytes, stderr_bytes = await asyncio.gather(
             read_stream(process.stdout, stdout_line_callback),
             read_stream(process.stderr, stderr_line_callback),
         )
+        # Avoid a subprocess transport race observed on Python 3.12 where the
+        # child has exited and both pipes reached EOF, but process.wait() never
+        # wakes its waiter. The return code is still updated by the transport.
         while process.returncode is None:
             await asyncio.sleep(0.001)
         return stdout_bytes, stderr_bytes

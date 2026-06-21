@@ -14,4 +14,3 @@ def test_all_shift_options(root, mode):
     options = shift_options(root, mode, 3)
     assert [item.semitones for item in options] == list(range(-3, 4))
     assert options[3].target_key == display_key(root, mode)
-

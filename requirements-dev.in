@@ -4,4 +4,4 @@ pytest
 pytest-asyncio
 pytest-cov
 pip-tools
-
+ruff

@@ -7,17 +7,32 @@ from pathlib import Path
 
 from app.config import Settings
 from app.errors import AppError
+from app.services.artifacts import JobArtifacts
 from app.services.files import safe_child
 from app.services.process import ProcessFailed, ProcessTimedOut, run_process
 
 
-async def prepare_analysis_audio(source: Path, job_root: Path, settings: Settings) -> Path:
-    output = safe_child(job_root, "analysis.wav")
+async def prepare_analysis_audio(source: Path, artifacts: JobArtifacts, settings: Settings) -> Path:
+    output = artifacts.analysis_audio
     try:
         await run_process(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-                "-vn", "-ac", "1", "-ar", "22050", "-c:a", "pcm_s16le", str(output),
+                "ffmpeg",
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "22050",
+                "-c:a",
+                "pcm_s16le",
+                str(output),
             ],
             timeout=settings.analysis_timeout_seconds,
         )
@@ -33,9 +48,14 @@ async def probe_audio(path: Path, settings: Settings) -> dict:
     try:
         result = await run_process(
             [
-                "ffprobe", "-v", "error", "-show_entries",
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
                 "format=duration,size:stream=codec_type,codec_name,sample_rate,channels",
-                "-of", "json", str(path),
+                "-of",
+                "json",
+                str(path),
             ],
             timeout=min(settings.metadata_timeout_seconds, 30),
         )
@@ -72,8 +92,22 @@ async def transpose_audio(
     try:
         report(2)
         await run_process(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-             "-vn", "-ar", "44100", "-c:a", "pcm_s24le", str(pcm)],
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-ar",
+                "44100",
+                "-c:a",
+                "pcm_s24le",
+                str(pcm),
+            ],
             timeout=settings.transpose_timeout_seconds,
         )
         report(15 if semitones else 55)
@@ -104,18 +138,51 @@ async def transpose_audio(
             input_audio = shifted
             report(90)
 
-        shift_text = "原調" if semitones == 0 else f"{'升' if semitones > 0 else '降'}{abs(semitones)}半音"
-        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(input_audio)]
+        shift_text = (
+            "原調" if semitones == 0 else f"{'升' if semitones > 0 else '降'}{abs(semitones)}半音"
+        )
+        command = [
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(input_audio),
+        ]
         if thumbnail.exists():
-            command.extend(["-i", str(thumbnail), "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg",
-                            "-disposition:v", "attached_pic"])
-        command.extend([
-            "-c:a", "libmp3lame", "-b:a", f"{bitrate_kbps}k", "-ar", "44100",
-            "-metadata", f"title={title} [{shift_text}・{target_key}]",
-            "-metadata", f"artist={uploader or ''}",
-            "-metadata", "comment=Transposed by yt2mp3",
-            str(output),
-        ])
+            command.extend(
+                [
+                    "-i",
+                    str(thumbnail),
+                    "-map",
+                    "0:a",
+                    "-map",
+                    "1:v",
+                    "-c:v",
+                    "mjpeg",
+                    "-disposition:v",
+                    "attached_pic",
+                ]
+            )
+        command.extend(
+            [
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                f"{bitrate_kbps}k",
+                "-ar",
+                "44100",
+                "-metadata",
+                f"title={title} [{shift_text}・{target_key}]",
+                "-metadata",
+                f"artist={uploader or ''}",
+                "-metadata",
+                "comment=Transposed by yt2mp3",
+                str(output),
+            ]
+        )
         await run_process(command, timeout=settings.transpose_timeout_seconds)
         report(98)
         await probe_audio(output, settings)

@@ -16,6 +16,7 @@ input { width:100%; padding:0 14px; background:#0e1118; color:var(--text); }
 button { padding:0 20px; border:0; background:var(--accent); color:#07110e; font-weight:800; cursor:pointer; }
 button:focus-visible,input:focus-visible { outline:3px solid #fff; outline-offset:2px; }
 button:disabled { cursor:wait; opacity:.5; }
+.login-submit { display:block; min-width:160px; margin:24px auto 0; }
 .secondary { background:#222a37; color:var(--text); border:1px solid var(--line); }
 .compact { min-height:40px; margin-top:16px; white-space:nowrap; }
 .notice { margin:14px 0 0; font-size:.88rem; }

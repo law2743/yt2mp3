@@ -22,4 +22,3 @@ def sanitize_filename(value: str, max_length: int = 120) -> str:
     if not value:
         value = "audio"
     return value[:max_length].rstrip(" ._") or "audio"
-

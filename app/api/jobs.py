@@ -73,10 +73,12 @@ async def download(
         raise AppError(404, "OUTPUT_NOT_FOUND", "指定的轉調檔案不存在或已失效。")
     assert job.source_info and job.analysis
     target = display_key(job.analysis.root_index + semitones, job.analysis.mode)
-    shift = "original" if semitones == 0 else f"{'up' if semitones > 0 else 'down'}-{abs(semitones)}"
-    filename = sanitize_filename(
-        f"{job.source_info.title}_{shift}_{target}_{bitrate_kbps}kbps"
-    ) + ".mp3"
+    shift = (
+        "original" if semitones == 0 else f"{'up' if semitones > 0 else 'down'}-{abs(semitones)}"
+    )
+    filename = (
+        sanitize_filename(f"{job.source_info.title}_{shift}_{target}_{bitrate_kbps}kbps") + ".mp3"
+    )
     return FileResponse(
         path,
         media_type="audio/mpeg",
@@ -96,7 +98,9 @@ async def thumbnail(
     path = safe_child(job.root, "thumbnail.jpg")
     if not path.exists():
         raise AppError(404, "THUMBNAIL_NOT_FOUND", "找不到影片縮圖。")
-    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+    return FileResponse(
+        path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"}
+    )
 
 
 @router.delete("/{job_id}", status_code=204)

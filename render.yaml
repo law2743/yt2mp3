@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: bash scripts/build_frontend.sh
     staticPublishPath: ./frontend
-    autoDeploy: false
+    autoDeploy: true
     envVars:
       - key: BACKEND_API_URL
         sync: false

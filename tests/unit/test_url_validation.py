@@ -39,4 +39,3 @@ def test_playlist_has_specific_error():
     with pytest.raises(AppError) as error:
         canonicalize_youtube_url("https://youtube.com/watch?v=dQw4w9WgXcQ&list=abc")
     assert error.value.code == "PLAYLIST_NOT_SUPPORTED"
-

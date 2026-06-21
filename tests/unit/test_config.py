@@ -22,7 +22,9 @@ def test_production_accepts_token_secret_and_exact_frontend_origin():
 def test_cors_origin_rejects_wildcards_and_paths():
     with pytest.raises(ValidationError):
         Settings(
-            app_env="production", app_password="password", token_secret="x" * 32,
+            app_env="production",
+            app_password="password",
+            token_secret="x" * 32,
             cors_allowed_origins="*",
         )
     with pytest.raises(ValueError):

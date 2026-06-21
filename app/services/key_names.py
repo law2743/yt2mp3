@@ -27,4 +27,3 @@ def shift_options(root_index: int, mode: str, shift_range: int) -> list[ShiftOpt
             )
         )
     return options
-

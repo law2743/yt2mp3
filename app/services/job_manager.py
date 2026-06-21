@@ -13,10 +13,12 @@ from pathlib import Path
 from app.config import Settings
 from app.errors import AppError
 from app.models import ErrorDetail, JobPublic, JobStatus, KeyAnalysisResult, OutputInfo, SourceInfo
-from app.services.audio import prepare_analysis_audio, transpose_audio
+from app.services.artifacts import JobArtifacts
 from app.services.files import safe_child
 from app.services.key_analyzer import LibrosaKeyAnalyzer
-from app.services.key_names import display_key, shift_options
+from app.services.key_names import shift_options
+from app.services.pipelines import AnalyzePipeline, TransposePipeline
+from app.services.task_queue import QueueItem, TaskQueue
 from app.services.youtube import CanonicalYouTubeUrl, YouTubeAdapter
 
 logger = logging.getLogger(__name__)
@@ -27,7 +29,7 @@ class Job:
     job_id: str
     owner_id: str
     youtube_url: CanonicalYouTubeUrl
-    root: Path
+    artifacts: JobArtifacts
     created_at: datetime
     expires_at: datetime
     status: JobStatus = JobStatus.QUEUED
@@ -42,20 +44,16 @@ class Job:
     active_bitrate_kbps: int | None = None
     error: ErrorDetail | None = None
 
-
-@dataclass(frozen=True, slots=True)
-class QueueItem:
-    job_id: str
-    operation: str
-    semitones: int | None = None
-    bitrate_kbps: int | None = None
+    @property
+    def root(self) -> Path:
+        return self.artifacts.root
 
 
 class JobManager:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.jobs: dict[str, Job] = {}
-        self.queue: asyncio.Queue[QueueItem] = asyncio.Queue(maxsize=settings.max_queue_size)
+        self.queue = TaskQueue(settings.max_queue_size)
         self.youtube = YouTubeAdapter(settings)
         self.analyzer = LibrosaKeyAnalyzer()
         self.worker_task: asyncio.Task | None = None
@@ -90,7 +88,11 @@ class JobManager:
     async def create(self, owner_id: str, url: CanonicalYouTubeUrl) -> Job:
         self.check_rate_limit(owner_id)
         active = next(
-            (job for job in self.jobs.values() if job.owner_id == owner_id and not self._is_terminal(job)),
+            (
+                job
+                for job in self.jobs.values()
+                if job.owner_id == owner_id and not self._is_terminal(job)
+            ),
             None,
         )
         if active:
@@ -102,13 +104,14 @@ class JobManager:
 
         job_id = str(uuid.uuid4())
         root = safe_child(self.settings.work_root, job_id)
-        root.mkdir(parents=True, exist_ok=False)
+        artifacts = JobArtifacts(root)
+        artifacts.create_directories()
         created = datetime.now(UTC)
         job = Job(
             job_id=job_id,
             owner_id=owner_id,
             youtube_url=url,
-            root=root,
+            artifacts=artifacts,
             created_at=created,
             expires_at=created + timedelta(minutes=self.settings.job_ttl_minutes),
         )
@@ -127,7 +130,10 @@ class JobManager:
         return job
 
     async def request_transpose(
-        self, job: Job, semitones: int, bitrate_kbps: int = 192,
+        self,
+        job: Job,
+        semitones: int,
+        bitrate_kbps: int = 192,
     ) -> Path | None:
         if semitones < -self.settings.shift_range or semitones > self.settings.shift_range:
             raise AppError(422, "INVALID_SHIFT", "請選擇畫面提供的升降半音數。")
@@ -202,11 +208,13 @@ class JobManager:
                 if not job or job.status == JobStatus.CANCELLED:
                     continue
                 if item.operation == "analyze":
-                    operation = asyncio.create_task(self._analyze(job))
+                    pipeline = AnalyzePipeline(self.settings, self.youtube, self.analyzer)
+                    operation = asyncio.create_task(pipeline.run(job))
                 else:
                     assert item.semitones is not None and item.bitrate_kbps is not None
+                    pipeline = TransposePipeline(self.settings)
                     operation = asyncio.create_task(
-                        self._transpose(job, item.semitones, item.bitrate_kbps)
+                        pipeline.run(job, item.semitones, item.bitrate_kbps)
                     )
                 self.running[job.job_id] = operation
                 await operation
@@ -222,76 +230,36 @@ class JobManager:
                 if job:
                     job.status = JobStatus.FAILED
                     job.stage = "failed"
-                    job.error = ErrorDetail(code=exc.code, message=exc.message, retryable=exc.retryable)
-                    logger.warning("job failed job_id=%s stage=%s error_code=%s", job.job_id, job.stage, exc.code)
+                    job.error = ErrorDetail(
+                        code=exc.code, message=exc.message, retryable=exc.retryable
+                    )
+                    logger.warning(
+                        "job failed job_id=%s stage=%s error_code=%s",
+                        job.job_id,
+                        job.stage,
+                        exc.code,
+                        exc_info=True,
+                    )
             except Exception:
                 job = self.jobs.get(item.job_id)
                 if job:
                     job.status = JobStatus.FAILED
                     job.stage = "failed"
-                    job.error = ErrorDetail(code="INTERNAL_ERROR", message="處理工作失敗，請重新嘗試。")
+                    job.error = ErrorDetail(
+                        code="INTERNAL_ERROR", message="處理工作失敗，請重新嘗試。"
+                    )
                 logger.exception("unexpected job failure job_id=%s", item.job_id)
             finally:
                 self.running.pop(item.job_id, None)
                 self.queue.task_done()
 
-    async def _analyze(self, job: Job) -> None:
-        job.status, job.stage, job.progress = JobStatus.FETCHING_METADATA, "fetching_metadata", 10
-        job.source_info, _raw = await self.youtube.metadata(job.youtube_url)
-        job.status, job.stage, job.progress = JobStatus.DOWNLOADING, "downloading", 30
-        job.stage_progress = 0
-
-        def update_download_progress(percent: int) -> None:
-            job.stage_progress = percent
-            job.progress = max(job.progress, 30 + round(percent * 0.24))
-
-        job.source_path = await self.youtube.download(
-            job.youtube_url, job.root, progress_callback=update_download_progress,
-        )
-        job.stage_progress = None
-        job.status, job.stage, job.progress = JobStatus.PREPARING_AUDIO, "preparing_audio", 55
-        analysis_audio = await prepare_analysis_audio(job.source_path, job.root, self.settings)
-        job.status, job.stage, job.progress = JobStatus.ANALYZING, "detecting_key", 75
-        try:
-            job.analysis = await asyncio.wait_for(
-                asyncio.to_thread(self.analyzer.analyze, analysis_audio),
-                timeout=self.settings.analysis_timeout_seconds,
-            )
-        except (ValueError, asyncio.TimeoutError) as exc:
-            raise AppError(500, "ANALYSIS_FAILED", "無法判斷歌曲調性，請嘗試其他影片。") from exc
-        analysis_audio.unlink(missing_ok=True)
-        job.status, job.stage, job.progress = JobStatus.READY, "awaiting_selection", 100
-
-    async def _transpose(self, job: Job, semitones: int, bitrate_kbps: int) -> None:
-        assert job.analysis and job.source_info and job.source_path
-        job.stage, job.progress = "transposing", 40
-
-        def update_transpose_progress(percent: int) -> None:
-            job.stage_progress = percent
-            job.progress = percent
-
-        target_key = display_key(job.analysis.root_index + semitones, job.analysis.mode)
-        output = await transpose_audio(
-            job.source_path, job.root, semitones, job.source_info.title,
-            job.source_info.uploader, target_key, self.settings,
-            bitrate_kbps=bitrate_kbps,
-            progress_callback=update_transpose_progress,
-        )
-        output_key = (semitones, bitrate_kbps)
-        job.outputs[output_key] = output
-        job.outputs.move_to_end(output_key)
-        while len(job.outputs) > 2:
-            _old_shift, old_path = job.outputs.popitem(last=False)
-            old_path.unlink(missing_ok=True)
-        job.status, job.stage, job.progress = JobStatus.COMPLETED, "completed", 100
-        job.stage_progress = None
-        job.active_shift = None
-        job.active_bitrate_kbps = None
-
     def _is_terminal(self, job: Job) -> bool:
         return job.status in {
-            JobStatus.READY, JobStatus.COMPLETED, JobStatus.FAILED,
-            JobStatus.CANCELLED, JobStatus.EXPIRED,
+            JobStatus.READY,
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+            JobStatus.EXPIRED,
         }
 
     async def _cleanup_loop(self) -> None:

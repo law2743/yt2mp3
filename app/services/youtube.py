@@ -63,7 +63,15 @@ class YouTubeAdapter:
         self.settings = settings
 
     def _base_args(self) -> list[str]:
-        args = ["yt-dlp", "--no-playlist", "--no-warnings", "--socket-timeout", "15", "--retries", "2"]
+        args = [
+            "yt-dlp",
+            "--no-playlist",
+            "--no-warnings",
+            "--socket-timeout",
+            "15",
+            "--retries",
+            "2",
+        ]
         if self.settings.ytdlp_cookies_file:
             args.extend(["--cookies", str(self.settings.ytdlp_cookies_file)])
         return args
@@ -71,9 +79,8 @@ class YouTubeAdapter:
     async def metadata(self, url: CanonicalYouTubeUrl) -> tuple[SourceInfo, dict]:
         try:
             result = await run_process(
-                self._base_args() + [
-                    "-f", "bestaudio/best", "--dump-single-json", "--skip-download", url.url
-                ],
+                self._base_args()
+                + ["-f", "bestaudio/best", "--dump-single-json", "--skip-download", url.url],
                 timeout=self.settings.metadata_timeout_seconds,
             )
             raw = json.loads(result.stdout)
@@ -110,10 +117,20 @@ class YouTubeAdapter:
     ) -> Path:
         output_template = str(safe_child(job_root, "source.%(ext)s"))
         args = self._base_args() + [
-            "--newline", "--no-color", "--progress-template",
+            "--newline",
+            "--no-color",
+            "--progress-template",
             "download:yt2mp3-progress:%(progress._percent_str)s",
-            "-f", "bestaudio/best", "--max-filesize", f"{self.settings.max_source_mb}M",
-            "--write-thumbnail", "--convert-thumbnails", "jpg", "-o", output_template, url.url,
+            "-f",
+            "bestaudio/best",
+            "--max-filesize",
+            f"{self.settings.max_source_mb}M",
+            "--write-thumbnail",
+            "--convert-thumbnails",
+            "jpg",
+            "-o",
+            output_template,
+            url.url,
         ]
 
         def report_progress(line: str) -> None:
@@ -133,7 +150,11 @@ class YouTubeAdapter:
         except ProcessFailed as exc:
             raise map_ytdlp_error(exc.stderr) from exc
 
-        sources = [path for path in job_root.glob("source.*") if path.suffix not in {".jpg", ".part", ".ytdl"}]
+        sources = [
+            path
+            for path in job_root.glob("source.*")
+            if path.suffix not in {".jpg", ".part", ".ytdl"}
+        ]
         if not sources:
             raise AppError(502, "AUDIO_FORMAT_UNAVAILABLE", "找不到可處理的音訊格式。")
         source = max(sources, key=lambda item: item.stat().st_size)
@@ -148,8 +169,14 @@ class YouTubeAdapter:
 
 def map_ytdlp_error(stderr: str) -> AppError:
     text = stderr.lower()
-    if "sign in" in text or "confirm you’re not a bot" in text or "confirm you're not a bot" in text:
-        return AppError(502, "YOUTUBE_AUTH_REQUIRED", "YouTube 要求額外驗證，目前無法取得此影片。", True)
+    if (
+        "sign in" in text
+        or "confirm you’re not a bot" in text
+        or "confirm you're not a bot" in text
+    ):
+        return AppError(
+            502, "YOUTUBE_AUTH_REQUIRED", "YouTube 要求額外驗證，目前無法取得此影片。", True
+        )
     if "429" in text or "too many requests" in text:
         return AppError(429, "YOUTUBE_RATE_LIMITED", "YouTube 暫時限制此服務，請稍後再試。", True)
     if "private video" in text or "not available in your country" in text:

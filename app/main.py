@@ -16,9 +16,13 @@ from app.config import get_settings
 from app.errors import AppError, app_error_handler
 from app.services.job_manager import JobManager
 
+
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    settings = get_settings()
+    # Honor FastAPI's settings override in tests while keeping the cached
+    # environment-backed settings in normal application startup.
+    settings_provider = app_instance.dependency_overrides.get(get_settings, get_settings)
+    settings = settings_provider()
     settings.work_root.mkdir(parents=True, exist_ok=True)
     manager = JobManager(settings)
     app_instance.state.job_manager = manager
@@ -67,7 +71,13 @@ async def limit_request_body(request: Request, call_next):
         if too_large:
             return JSONResponse(
                 status_code=413,
-                content={"error": {"code": "REQUEST_TOO_LARGE", "message": "請求內容過大。", "retryable": False}},
+                content={
+                    "error": {
+                        "code": "REQUEST_TOO_LARGE",
+                        "message": "請求內容過大。",
+                        "retryable": False,
+                    }
+                },
             )
     return await call_next(request)
 

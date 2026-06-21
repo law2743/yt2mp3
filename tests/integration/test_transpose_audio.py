@@ -20,7 +20,13 @@ async def test_pitch_shift_frequency_duration_and_metadata(tmp_path):
     settings = Settings(app_env="test", work_root=tmp_path, transpose_timeout_seconds=60)
 
     output = await transpose_audio(
-        source, tmp_path, 1, "A440 fixture", "Tests", "Bb Major", settings,
+        source,
+        tmp_path,
+        1,
+        "A440 fixture",
+        "Tests",
+        "Bb Major",
+        settings,
         bitrate_kbps=192,
     )
     audio, rate = librosa.load(output, sr=sample_rate, mono=True)
