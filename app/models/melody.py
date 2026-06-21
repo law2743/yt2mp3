@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+MeterHint = Literal["auto", "none", "4/4", "3/4", "6/8"]
+MeterUsed = Literal["none", "4/4", "3/4", "6/8"]
+
+
+class MelodyStatus(StrEnum):
+    NOT_STARTED = "not_started"
+    QUEUED = "melody_queued"
+    PREPARING = "melody_preparing"
+    DETECTING = "melody_extracting_pitch"
+    EXPORTING = "melody_exporting"
+    COMPLETED = "melody_completed"
+    FAILED = "melody_failed"
+
+
+class MelodyNote(BaseModel):
+    note_id: str
+    start_sec: float = Field(ge=0)
+    end_sec: float = Field(ge=0)
+    duration_sec: float = Field(gt=0)
+    midi_note: int = Field(ge=0, le=127)
+    note_name: str
+    octave: int
+    frequency_hz: float | None = None
+    beat_start: float | None = None
+    beat_duration: float | None = None
+    quantized_beat_start: float | None = None
+    quantized_beat_duration: float | None = None
+    bar_index: int | None = None
+    scale_degree: int | None = None
+    numbered_notation: str | None = None
+    confidence: float = Field(ge=0, le=1)
+    source: Literal["pyin"] = "pyin"
+
+
+class MelodySummary(BaseModel):
+    note_count: int = Field(ge=0)
+    voiced_ratio: float = Field(ge=0, le=1)
+    average_confidence: float = Field(ge=0, le=1)
+    estimated_range: str | None = None
+    start_sec: float | None = None
+    end_sec: float | None = None
+
+
+class MelodyAnalysisResult(BaseModel):
+    job_id: str
+    status: Literal["completed"] = "completed"
+    algorithm_version: str = "librosa-pyin-melody-v1"
+    source_wav: str = "analysis/mono-22050.wav"
+    key: str | None = None
+    mode: Literal["major", "minor"] | None = None
+    bpm: float | None = None
+    meter_hint: MeterHint
+    meter_used: MeterUsed = "none"
+    time_signature: str | None = None
+    notes: list[MelodyNote]
+    summary: MelodySummary
+    warnings: list[str] = Field(default_factory=list)

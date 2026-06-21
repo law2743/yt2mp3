@@ -10,6 +10,7 @@ exact Python package versions are recorded in `requirements.txt`.
   packaged build.
 - yt-dlp — The Unlicense.
 - librosa — ISC License.
+- Mido — MIT License.
 - FastAPI — MIT License.
 - Uvicorn — BSD-3-Clause License.
 - NumPy — BSD-3-Clause License.
@@ -21,4 +22,3 @@ exact Python package versions are recorded in `requirements.txt`.
 This list is an engineering notice, not legal advice. Redistributors must review
 the licenses shipped with the exact dependency and system-package versions they
 distribute.
-

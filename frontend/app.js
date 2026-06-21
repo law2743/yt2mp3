@@ -8,9 +8,34 @@ const form = document.querySelector("#analyze-form");
 const urlInput = document.querySelector("#url");
 const statusBox = document.querySelector("#status");
 const resultBox = document.querySelector("#result");
+const phaseStepper = document.querySelector("#phase-stepper");
 let pollTimer = null;
+let melodyPollTimer = null;
 let pollCount = 0;
 let thumbnailObjectUrl = null;
+let currentPhaseStep = 1;
+
+function selectPhaseStep(step) {
+  const target = phaseStepper.querySelector(`[data-phase-step="${step}"]`);
+  if (!target || target.disabled) return;
+  currentPhaseStep = step;
+  phaseStepper.querySelectorAll("[data-phase-step]").forEach((button) => {
+    const active = Number(button.dataset.phaseStep) === step;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "step");
+    else button.removeAttribute("aria-current");
+  });
+  resultBox.querySelectorAll("[data-phase-content]").forEach((panel) => {
+    panel.classList.toggle("hidden", Number(panel.dataset.phaseContent) !== step);
+  });
+}
+
+function setPhaseTwoAvailable(available) {
+  const button = phaseStepper.querySelector('[data-phase-step="2"]');
+  button.disabled = !available;
+  button.classList.toggle("is-available", available);
+  if (!available && currentPhaseStep === 2) selectPhaseStep(1);
+}
 
 const stageLabels = {
   queued: "工作已排入佇列…",
@@ -122,6 +147,11 @@ function clearPoll() {
   pollTimer = null;
 }
 
+function clearMelodyPoll() {
+  if (melodyPollTimer) window.clearTimeout(melodyPollTimer);
+  melodyPollTimer = null;
+}
+
 async function poll(jobId) {
   clearPoll();
   try {
@@ -193,6 +223,9 @@ async function loadThumbnail(path) {
 async function renderResult(job) {
   const source = job.source;
   const analysis = job.analysis;
+  // Older backends do not include the additive features object. Once key
+  // analysis is ready, expose Step 2 unless the API explicitly disables it.
+  const melodyAvailable = job.features?.melody_analysis !== false;
   const alternatives = analysis.candidates.slice(1)
     .map((item) => `${escapeHtml(item.key)} ${Math.round(item.score * 100)}%`).join("、") || "無";
   const buttons = [...job.shift_options]
@@ -220,12 +253,19 @@ async function renderResult(job) {
       下載 ${escapeHtml(option.label)}・${escapeHtml(option.target_key)}・${output.bitrate_kbps} kbps MP3
     </button>`;
   }).join("");
+  const melodyPanel = melodyAvailable ? `
+    <section class="melody-panel" data-phase-content="2" data-melody-panel aria-live="polite">
+      <h3>主旋律簡譜草稿</h3>
+      <p class="muted">以 pYIN 從完整混音估計主旋律，結果可能包含伴奏或和聲。</p>
+      <div data-melody-content></div>
+    </section>` : "";
   resultBox.innerHTML = `
     <div class="song-head">
       ${source.thumbnail_url ? '<img data-thumbnail class="hidden" alt="影片縮圖">' : ""}
       <div><p class="eyebrow">分析結果</p><h2>${escapeHtml(source.title)}</h2>
       <p class="muted">${escapeHtml(source.uploader || "未知頻道")}・${formatDuration(source.duration_seconds)}</p></div>
     </div>
+    <section data-phase-content="1">
     <div class="key-summary"><div><span>原調</span><strong>${escapeHtml(analysis.key || analysis.display_name)}</strong></div>
       <div><span>可信度</span><strong>${Math.round(analysis.confidence * 100)}%</strong></div></div>
     <p>${confidenceText(analysis.confidence)}</p><p class="muted">其他可能：${alternatives}</p>
@@ -234,8 +274,12 @@ async function renderResult(job) {
       <div class="bitrate-options">${bitrateOptions}</div>
     </fieldset>
     <div class="shift-grid" aria-label="轉調選項">${buttons}</div>
-    <div class="downloads">${downloads}</div>`;
+    <div class="downloads">${downloads}</div>
+    </section>
+    ${melodyPanel}`;
   resultBox.classList.remove("hidden");
+  setPhaseTwoAvailable(melodyAvailable);
+  selectPhaseStep(currentPhaseStep);
   resultBox.querySelectorAll(".shift-button").forEach((button) => {
     button.addEventListener("click", () => startTranspose(
       job.job_id, Number(button.dataset.shift), selectedBitrate(),
@@ -247,6 +291,118 @@ async function renderResult(job) {
     ));
   });
   await loadThumbnail(source.thumbnail_url);
+  if (melodyAvailable) await loadMelodyState(job.job_id);
+}
+
+function melodyControls(meterHint = "auto", actionLabel = "產生主旋律簡譜草稿", force = false) {
+  const meters = [
+    ["auto", "自動（不確定時不分小節）"],
+    ["none", "不分小節"],
+    ["4/4", "4/4"],
+    ["3/4", "3/4"],
+    ["6/8", "6/8（3+3）"],
+  ].map(([value, label]) => `<option value="${value}"${value === meterHint ? " selected" : ""}>${label}</option>`).join("");
+  return `<div class="melody-controls">
+    <label for="melody-meter">拍號提示</label>
+    <select id="melody-meter" data-melody-meter>${meters}</select>
+    <button type="button" data-start-melody data-force="${force}">${actionLabel}</button>
+  </div>`;
+}
+
+function bindMelodyActions(jobId) {
+  const panel = resultBox.querySelector("[data-melody-panel]");
+  panel?.querySelector("[data-start-melody]")?.addEventListener("click", () => {
+    const meterHint = panel.querySelector("[data-melody-meter]")?.value || "auto";
+    startMelody(jobId, meterHint, panel.querySelector("[data-start-melody]").dataset.force === "true");
+  });
+  panel?.querySelectorAll("[data-melody-download]").forEach((button) => {
+    button.addEventListener("click", () => downloadArtifact(button.dataset.melodyDownload, button));
+  });
+}
+
+function setTransposeControlsDisabled(disabled) {
+  resultBox.querySelectorAll(".shift-button,.bitrate-option input").forEach((control) => {
+    control.disabled = disabled;
+  });
+}
+
+function renderMelodyState(jobId, melody) {
+  const content = resultBox.querySelector("[data-melody-content]");
+  if (!content) return;
+  const running = [
+    "melody_queued", "melody_preparing", "melody_extracting_pitch", "melody_exporting",
+  ].includes(melody.status);
+  setTransposeControlsDisabled(running);
+  if (running) {
+    const labels = {
+      melody_queued: "主旋律工作已排入佇列…",
+      melody_preparing: "正在準備主旋律分析…",
+      melody_extracting_pitch: "正在抽取主旋律候選音高…",
+      melody_exporting: "正在輸出 Melody JSON 與 MIDI…",
+    };
+    content.innerHTML = `<div class="melody-progress">
+      <span class="processing-spinner" aria-hidden="true"></span>
+      <span><strong>${escapeHtml(labels[melody.status] || "正在分析主旋律…")}</strong>
+      <small>${Math.round(melody.progress || 0)}%</small></span></div>`;
+  } else if (melody.status === "melody_completed" && melody.result) {
+    const result = melody.result;
+    const lines = result.preview?.numbered_notation_lines || [];
+    const notation = lines.length ? lines.map(escapeHtml).join("\n") : "沒有足夠清楚的旋律候選音符。";
+    const summary = result.summary;
+    content.innerHTML = `
+      <div class="melody-summary">
+        <div><span>估計 BPM</span><strong>${result.bpm ? Math.round(result.bpm) : "—"}</strong></div>
+        <div><span>拍號</span><strong>${escapeHtml(result.meter_used || "none")}</strong></div>
+        <div><span>平均可信度</span><strong>${Math.round(summary.average_confidence * 100)}%</strong></div>
+        <div><span>音域</span><strong>${escapeHtml(summary.estimated_range || "—")}</strong></div>
+      </div>
+      <pre class="numbered-notation" tabindex="0" aria-label="主旋律簡譜草稿">${notation}</pre>
+      ${(result.warnings || []).map((warning) => `<p class="melody-warning">${escapeHtml(warning)}</p>`).join("")}
+      <div class="melody-downloads">
+        <button type="button" data-melody-download="${escapeHtml(result.downloads.json_url)}">下載 melody JSON</button>
+        <button type="button" data-melody-download="${escapeHtml(result.downloads.midi_url)}">下載 MIDI</button>
+      </div>
+      ${melodyControls(melody.meter_hint, "重新分析", true)}`;
+  } else if (melody.status === "melody_failed") {
+    content.innerHTML = `<p class="error">${escapeHtml(melody.error?.message || "無法產生主旋律草稿。")}</p>
+      ${melodyControls(melody.meter_hint, "重新嘗試", true)}`;
+  } else {
+    content.innerHTML = melodyControls(melody.meter_hint);
+  }
+  bindMelodyActions(jobId);
+}
+
+async function loadMelodyState(jobId) {
+  try {
+    const melody = await request(`/api/jobs/${encodeURIComponent(jobId)}/melody`);
+    renderMelodyState(jobId, melody);
+    if (["melody_queued", "melody_preparing", "melody_extracting_pitch", "melody_exporting"].includes(melody.status)) {
+      clearMelodyPoll();
+      melodyPollTimer = window.setTimeout(() => loadMelodyState(jobId), 1500);
+    }
+  } catch (error) {
+    const content = resultBox.querySelector("[data-melody-content]");
+    if (content) content.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+    setTransposeControlsDisabled(false);
+  }
+}
+
+async function startMelody(jobId, meterHint, force = false) {
+  clearMelodyPoll();
+  setTransposeControlsDisabled(true);
+  const content = resultBox.querySelector("[data-melody-content]");
+  if (content) content.innerHTML = '<p class="muted">正在建立主旋律分析工作…</p>';
+  try {
+    const melody = await request(`/api/jobs/${encodeURIComponent(jobId)}/melody`, {
+      method: "POST", body: JSON.stringify({ force, meter_hint: meterHint }),
+    });
+    renderMelodyState(jobId, melody);
+    await loadMelodyState(jobId);
+  } catch (error) {
+    if (content) content.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>${melodyControls(meterHint, "重新嘗試", true)}`;
+    bindMelodyActions(jobId);
+    setTransposeControlsDisabled(false);
+  }
 }
 
 async function startTranspose(jobId, semitones, bitrateKbps) {
@@ -270,6 +426,28 @@ function responseFilename(response) {
   const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   if (encoded) return decodeURIComponent(encoded);
   return disposition.match(/filename="?([^";]+)"?/i)?.[1] || "yt2mp3.mp3";
+}
+
+async function downloadArtifact(path, button) {
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "正在下載…";
+  try {
+    const response = await authenticatedFetch(path);
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = responseFilename(response);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch (error) {
+    showStatus(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 async function downloadMp3(jobId, semitones, bitrateKbps, button) {
@@ -300,6 +478,10 @@ async function downloadMp3(jobId, semitones, bitrateKbps, button) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearPoll();
+  clearMelodyPoll();
+  currentPhaseStep = 1;
+  setPhaseTwoAvailable(false);
+  selectPhaseStep(1);
   resultBox.classList.add("hidden");
   showProcessingStatus("正在建立分析工作…");
   try {
@@ -319,11 +501,16 @@ document.querySelector("#logout").addEventListener("click", () => {
   window.location.replace("login.html");
 });
 
+phaseStepper.querySelectorAll("[data-phase-step]").forEach((button) => {
+  button.addEventListener("click", () => selectPhaseStep(Number(button.dataset.phaseStep)));
+});
+
 if (token()) {
   const savedJob = new URL(window.location.href).searchParams.get("job") || sessionStorage.getItem(JOB_KEY);
   if (savedJob) poll(savedJob);
 }
 
 window.addEventListener("beforeunload", () => {
+  clearMelodyPoll();
   if (thumbnailObjectUrl) URL.revokeObjectURL(thumbnailObjectUrl);
 });

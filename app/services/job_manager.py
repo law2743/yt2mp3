@@ -12,16 +12,37 @@ from pathlib import Path
 
 from app.config import Settings
 from app.errors import AppError
-from app.models import ErrorDetail, JobPublic, JobStatus, KeyAnalysisResult, OutputInfo, SourceInfo
+from app.models import (
+    ErrorDetail,
+    JobPublic,
+    JobStatus,
+    KeyAnalysisResult,
+    MelodyAnalysisResult,
+    MelodyStatus,
+    OutputInfo,
+    SourceInfo,
+)
+from app.models.melody import MeterHint
 from app.services.artifacts import JobArtifacts
 from app.services.files import safe_child
 from app.services.key_analyzer import LibrosaKeyAnalyzer
 from app.services.key_names import shift_options
-from app.services.pipelines import AnalyzePipeline, TransposePipeline
+from app.services.melody import build_notation_lines
+from app.services.pipelines import AnalyzePipeline, MelodyPipeline, TransposePipeline
 from app.services.task_queue import QueueItem, TaskQueue
 from app.services.youtube import CanonicalYouTubeUrl, YouTubeAdapter
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class MelodySubtask:
+    status: MelodyStatus = MelodyStatus.NOT_STARTED
+    stage: str = "not_started"
+    progress: int = 0
+    meter_hint: MeterHint = "auto"
+    result: MelodyAnalysisResult | None = None
+    error: ErrorDetail | None = None
 
 
 @dataclass(slots=True)
@@ -43,6 +64,7 @@ class Job:
     active_shift: int | None = None
     active_bitrate_kbps: int | None = None
     error: ErrorDetail | None = None
+    melody: MelodySubtask = field(default_factory=MelodySubtask)
 
     @property
     def root(self) -> Path:
@@ -144,7 +166,12 @@ class JobManager:
         if existing and existing.exists():
             job.outputs.move_to_end(output_key)
             return existing
-        if job.status == JobStatus.TRANSPOSING:
+        if job.status == JobStatus.TRANSPOSING or job.melody.status in {
+            MelodyStatus.QUEUED,
+            MelodyStatus.PREPARING,
+            MelodyStatus.DETECTING,
+            MelodyStatus.EXPORTING,
+        }:
             raise AppError(409, "JOB_BUSY", "這首歌曲正在處理中，請稍候。", True)
         if job.status not in {JobStatus.READY, JobStatus.COMPLETED} or not job.source_path:
             raise AppError(409, "JOB_BUSY", "歌曲尚未完成分析，請稍候。", True)
@@ -159,6 +186,85 @@ class JobManager:
         job.error = None
         await self.queue.put(QueueItem(job.job_id, "transpose", semitones, bitrate_kbps))
         return None
+
+    async def request_melody(
+        self, job: Job, force: bool, meter_hint: MeterHint
+    ) -> bool:
+        if not self.settings.enable_melody_analysis:
+            raise AppError(404, "FEATURE_DISABLED", "主旋律分析功能目前未啟用。")
+        if job.melody.status in {
+            MelodyStatus.QUEUED,
+            MelodyStatus.PREPARING,
+            MelodyStatus.DETECTING,
+            MelodyStatus.EXPORTING,
+        }:
+            raise AppError(409, "MELODY_ALREADY_RUNNING", "主旋律分析正在執行中。", True)
+        if job.status == JobStatus.TRANSPOSING:
+            raise AppError(409, "JOB_BUSY", "這首歌曲正在處理中，請稍候。", True)
+        if job.status not in {JobStatus.READY, JobStatus.COMPLETED} or not job.analysis:
+            raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
+        if not job.artifacts.analysis_audio.exists():
+            raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
+        if not force and job.artifacts.melody_json.exists() and job.artifacts.melody_midi.exists():
+            try:
+                job.melody.result = MelodyAnalysisResult.model_validate_json(
+                    job.artifacts.melody_json.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError):
+                pass
+            else:
+                job.melody.status = MelodyStatus.COMPLETED
+                job.melody.stage = "completed"
+                job.melody.progress = 100
+                job.melody.meter_hint = job.melody.result.meter_hint
+                job.melody.error = None
+                return True
+        if self.queue.full():
+            raise AppError(503, "SERVICE_BUSY", "目前處理工作較多，請稍後再試。", True)
+        job.melody.status = MelodyStatus.QUEUED
+        job.melody.stage = "queued"
+        job.melody.progress = 0
+        job.melody.meter_hint = meter_hint
+        job.melody.result = None
+        job.melody.error = None
+        await self.queue.put(QueueItem(job.job_id, "melody", meter_hint=meter_hint))
+        return False
+
+    def melody_public(self, job: Job) -> dict:
+        if not self.settings.enable_melody_analysis:
+            raise AppError(404, "FEATURE_DISABLED", "主旋律分析功能目前未啟用。")
+        payload: dict = {
+            "job_id": job.job_id,
+            "status": job.melody.status,
+            "stage": job.melody.stage,
+            "progress": job.melody.progress,
+            "meter_hint": job.melody.meter_hint,
+        }
+        if job.melody.error:
+            payload["error"] = job.melody.error.model_dump(mode="json")
+        if job.melody.result:
+            result = job.melody.result
+            payload["result"] = {
+                "algorithm_version": result.algorithm_version,
+                "key": result.key,
+                "mode": result.mode,
+                "bpm": result.bpm,
+                "meter_used": result.meter_used,
+                "time_signature": result.time_signature,
+                "summary": result.summary.model_dump(mode="json"),
+                "warnings": result.warnings,
+                "preview": {
+                    "key": result.key,
+                    "bpm": result.bpm,
+                    "meter_used": result.meter_used,
+                    "numbered_notation_lines": build_notation_lines(result),
+                },
+                "downloads": {
+                    "json_url": f"/api/jobs/{job.job_id}/melody/download/json",
+                    "midi_url": f"/api/jobs/{job.job_id}/melody/download/midi",
+                },
+            }
+        return payload
 
     def public(self, job: Job) -> JobPublic:
         options = None
@@ -189,6 +295,7 @@ class JobManager:
             active_shift=job.active_shift,
             active_bitrate_kbps=job.active_bitrate_kbps,
             error=job.error,
+            features={"melody_analysis": self.settings.enable_melody_analysis},
         )
 
     async def delete(self, job: Job) -> None:
@@ -210,14 +317,23 @@ class JobManager:
                 if item.operation == "analyze":
                     pipeline = AnalyzePipeline(self.settings, self.youtube, self.analyzer)
                     operation = asyncio.create_task(pipeline.run(job))
-                else:
+                elif item.operation == "transpose":
                     assert item.semitones is not None and item.bitrate_kbps is not None
                     pipeline = TransposePipeline(self.settings)
                     operation = asyncio.create_task(
                         pipeline.run(job, item.semitones, item.bitrate_kbps)
                     )
+                else:
+                    pipeline = MelodyPipeline(self.settings)
+                    operation = asyncio.create_task(pipeline.run(job, item.meter_hint))
                 self.running[job.job_id] = operation
-                await operation
+                result = await operation
+                if item.operation == "melody":
+                    job.melody.result = result
+                    job.melody.status = MelodyStatus.COMPLETED
+                    job.melody.stage = "completed"
+                    job.melody.progress = 100
+                    job.melody.error = None
             except asyncio.CancelledError:
                 current = asyncio.current_task()
                 if current and current.cancelling():
@@ -228,11 +344,19 @@ class JobManager:
             except AppError as exc:
                 job = self.jobs.get(item.job_id)
                 if job:
-                    job.status = JobStatus.FAILED
-                    job.stage = "failed"
-                    job.error = ErrorDetail(
-                        code=exc.code, message=exc.message, retryable=exc.retryable
-                    )
+                    if item.operation == "melody":
+                        job.melody.status = MelodyStatus.FAILED
+                        job.melody.stage = "failed"
+                        job.melody.progress = 0
+                        job.melody.error = ErrorDetail(
+                            code=exc.code, message=exc.message, retryable=exc.retryable
+                        )
+                    else:
+                        job.status = JobStatus.FAILED
+                        job.stage = "failed"
+                        job.error = ErrorDetail(
+                            code=exc.code, message=exc.message, retryable=exc.retryable
+                        )
                     logger.warning(
                         "job failed job_id=%s stage=%s error_code=%s",
                         job.job_id,
@@ -243,11 +367,21 @@ class JobManager:
             except Exception:
                 job = self.jobs.get(item.job_id)
                 if job:
-                    job.status = JobStatus.FAILED
-                    job.stage = "failed"
-                    job.error = ErrorDetail(
-                        code="INTERNAL_ERROR", message="處理工作失敗，請重新嘗試。"
-                    )
+                    if item.operation == "melody":
+                        job.melody.status = MelodyStatus.FAILED
+                        job.melody.stage = "failed"
+                        job.melody.progress = 0
+                        job.melody.error = ErrorDetail(
+                            code="MELODY_ANALYSIS_FAILED",
+                            message="無法產生主旋律草稿，請稍後再試。",
+                            retryable=True,
+                        )
+                    else:
+                        job.status = JobStatus.FAILED
+                        job.stage = "failed"
+                        job.error = ErrorDetail(
+                            code="INTERNAL_ERROR", message="處理工作失敗，請重新嘗試。"
+                        )
                 logger.exception("unexpected job failure job_id=%s", item.job_id)
             finally:
                 self.running.pop(item.job_id, None)

@@ -35,6 +35,14 @@ class JobArtifacts:
         return safe_child(self.analysis_dir, "mono-22050.wav")
 
     @property
+    def melody_json(self) -> Path:
+        return safe_child(self.analysis_dir, "melody.json")
+
+    @property
+    def melody_midi(self) -> Path:
+        return safe_child(self.analysis_dir, "melody.mid")
+
+    @property
     def thumbnail(self) -> Path:
         # Kept at the job root while the YouTube adapter owns thumbnail download.
         return safe_child(self.root, "thumbnail.jpg")

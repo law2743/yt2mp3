@@ -4,13 +4,16 @@ import asyncio
 from dataclasses import dataclass
 from typing import Literal
 
+from app.models.melody import MeterHint
+
 
 @dataclass(frozen=True, slots=True)
 class QueueItem:
     job_id: str
-    operation: Literal["analyze", "transpose"]
+    operation: Literal["analyze", "transpose", "melody"]
     semitones: int | None = None
     bitrate_kbps: int | None = None
+    meter_hint: MeterHint = "auto"
 
 
 class TaskQueue:

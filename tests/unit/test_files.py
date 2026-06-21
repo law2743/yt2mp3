@@ -30,4 +30,6 @@ def test_job_artifacts_create_stable_layout(tmp_path):
     assert artifacts.analysis_dir.is_dir()
     assert artifacts.output_dir.is_dir()
     assert artifacts.analysis_audio == tmp_path / "job-id" / "analysis" / "mono-22050.wav"
+    assert artifacts.melody_json == tmp_path / "job-id" / "analysis" / "melody.json"
+    assert artifacts.melody_midi == tmp_path / "job-id" / "analysis" / "melody.mid"
     assert artifacts.transposed_mp3(-2, 192).name == "shift_-2_192k.mp3"

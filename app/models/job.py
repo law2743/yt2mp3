@@ -57,3 +57,4 @@ class JobPublic(BaseModel):
     active_shift: int | None = None
     active_bitrate_kbps: Literal[128, 192, 256] | None = None
     error: ErrorDetail | None = None
+    features: dict[str, bool] = Field(default_factory=dict)

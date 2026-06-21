@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     download_timeout_seconds: int = 300
     analysis_timeout_seconds: int = 180
     transpose_timeout_seconds: int = 600
+    enable_melody_analysis: bool = True
+    melody_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    melody_min_note_duration_sec: float = Field(default=0.12, ge=0.02, le=2.0)
+    melody_max_gap_merge_sec: float = Field(default=0.08, ge=0, le=1.0)
+    melody_min_confidence: float = Field(default=0.45, ge=0, le=1)
+    melody_fmin: str = "C2"
+    melody_fmax: str = "C6"
+    melody_max_notes: int = Field(default=2000, ge=1, le=10000)
 
     @field_validator("shift_range")
     @classmethod

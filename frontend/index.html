@@ -25,6 +25,17 @@
     </form>
     <p class="notice">請僅處理你擁有或已獲授權使用的內容。暫存檔案將於一小時後刪除。</p>
   </section>
+  <nav id="phase-stepper" class="phase-stepper" aria-label="主要執行步驟">
+    <button type="button" class="phase-step is-active" data-phase-step="1" aria-current="step">
+      <span class="phase-number">1</span>
+      <span><strong>分析與轉調</strong><small>分析原調並輸出 MP3</small></span>
+    </button>
+    <span class="phase-connector" aria-hidden="true"></span>
+    <button type="button" class="phase-step" data-phase-step="2" disabled>
+      <span class="phase-number">2</span>
+      <span><strong>主旋律簡譜</strong><small>產生 Melody JSON 與 MIDI</small></span>
+    </button>
+  </nav>
   <section id="status" class="status hidden" aria-live="polite"></section>
   <section id="result" class="card hidden"></section>
 </main>
