@@ -2,16 +2,65 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.config import Settings
 from app.errors import AppError
-from app.models.melody import MelodyAnalysisResult, MelodyStatus, MeterHint
+from app.models.melody import (
+    MelodyAnalysisResult,
+    MelodySource,
+    MelodySourceUsed,
+    MelodyStatus,
+    MeterHint,
+)
 from app.services.melody import analyze_melody
+from app.services.pipelines.stems import read_stem_metadata
 
 if TYPE_CHECKING:
     from app.services.job_manager import Job
+
+
+def resolve_melody_source(job: Job, requested: MelodySource) -> tuple[MelodySourceUsed, Path]:
+    if requested == "vocals":
+        if not job.artifacts.vocals_wav.exists():
+            raise AppError(
+                422,
+                "VOCALS_SOURCE_NOT_READY",
+                "人聲 stem 尚未產生，請先完成 人聲／伴奏 分離。",
+            )
+        return "vocals", job.artifacts.vocals_wav
+    if requested == "auto" and job.artifacts.vocals_wav.exists():
+        return "vocals", job.artifacts.vocals_wav
+    return "mix", job.artifacts.analysis_audio
+
+
+def sync_best_melody_alias(
+    job: Job, priority: tuple[MelodySourceUsed, ...] = ("vocals", "mix")
+) -> None:
+    preferred = next(
+        (
+            source
+            for source in priority
+            if job.artifacts.melody_variant_json(source).exists()
+            and job.artifacts.melody_variant_midi(source).exists()
+        ),
+        "mix",
+    )
+    json_source = job.artifacts.melody_variant_json(preferred)
+    midi_source = job.artifacts.melody_variant_midi(preferred)
+    if json_source.exists() and midi_source.exists():
+        temporary_json = job.artifacts.analysis_dir / ".melody.alias.json.tmp"
+        temporary_midi = job.artifacts.analysis_dir / ".melody.alias.mid.tmp"
+        try:
+            shutil.copyfile(json_source, temporary_json)
+            shutil.copyfile(midi_source, temporary_midi)
+            temporary_json.replace(job.artifacts.melody_json)
+            temporary_midi.replace(job.artifacts.melody_midi)
+        finally:
+            temporary_json.unlink(missing_ok=True)
+            temporary_midi.unlink(missing_ok=True)
 
 
 def _worker(source: Path, json_output: Path, midi_output: Path, kwargs: dict) -> None:
@@ -22,20 +71,25 @@ class MelodyPipeline:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    async def run(self, job: Job, meter_hint: MeterHint) -> MelodyAnalysisResult:
+    async def run(
+        self, job: Job, meter_hint: MeterHint, requested_source: MelodySource = "auto"
+    ) -> MelodyAnalysisResult:
         assert job.analysis
-        source = job.artifacts.analysis_audio
+        source_used, source = resolve_melody_source(job, requested_source)
         if not source.exists():
             raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
 
         job.melody.status = MelodyStatus.PREPARING
         job.melody.stage = "preparing"
         job.melody.progress = 5
-        temporary_json = job.artifacts.analysis_dir / ".melody.json.tmp"
-        temporary_midi = job.artifacts.analysis_dir / ".melody.mid.tmp"
+        job.artifacts.melody_dir.mkdir(parents=True, exist_ok=True)
+        temporary_json = job.artifacts.melody_dir / f".{source_used}_pyin.json.tmp"
+        temporary_midi = job.artifacts.melody_dir / f".{source_used}_pyin.mid.tmp"
         for path in (temporary_json, temporary_midi):
             path.unlink(missing_ok=True)
 
+        stem_metadata = read_stem_metadata(job.artifacts.stems_metadata_json)
+        source_audio_path = source.relative_to(job.root).as_posix()
         kwargs = {
             "job_id": job.job_id,
             "key": job.analysis.display_name,
@@ -48,6 +102,14 @@ class MelodyPipeline:
             "fmin": self.settings.melody_fmin,
             "fmax": self.settings.melody_fmax,
             "max_notes": self.settings.melody_max_notes,
+            "melody_source_used": source_used,
+            "source_audio_path": source_audio_path,
+            "separation_backend": stem_metadata.backend
+            if source_used == "vocals" and stem_metadata
+            else None,
+            "separation_status": stem_metadata.status
+            if source_used == "vocals" and stem_metadata
+            else "missing",
         }
         context = multiprocessing.get_context("spawn")
         process = context.Process(
@@ -88,8 +150,10 @@ class MelodyPipeline:
             result = MelodyAnalysisResult.model_validate_json(
                 temporary_json.read_text(encoding="utf-8")
             )
-            temporary_json.replace(job.artifacts.melody_json)
-            temporary_midi.replace(job.artifacts.melody_midi)
+            temporary_json.replace(job.artifacts.melody_variant_json(source_used))
+            temporary_midi.replace(job.artifacts.melody_variant_midi(source_used))
+            priority = tuple(self.settings.melody_source_priority.split(","))
+            sync_best_melody_alias(job, priority)
         except Exception as exc:
             temporary_json.unlink(missing_ok=True)
             temporary_midi.unlink(missing_ok=True)

@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 MeterHint = Literal["auto", "none", "4/4", "3/4", "6/8"]
 MeterUsed = Literal["none", "4/4", "3/4", "6/8"]
+MelodySource = Literal["auto", "mix", "vocals"]
+MelodySourceUsed = Literal["mix", "vocals"]
 
 
 class MelodyStatus(StrEnum):
@@ -53,6 +55,12 @@ class MelodyAnalysisResult(BaseModel):
     status: Literal["completed"] = "completed"
     algorithm_version: str = "librosa-pyin-melody-v1"
     source_wav: str = "analysis/mono-22050.wav"
+    melody_source_used: MelodySourceUsed = "mix"
+    source_audio_path: str = "analysis/mono-22050.wav"
+    pitch_backend: Literal["pyin"] = "pyin"
+    separation_backend: Literal["demucs", "none"] | None = None
+    separation_status: str = "missing"
+    is_fallback: bool = True
     key: str | None = None
     mode: Literal["major", "minor"] | None = None
     bpm: float | None = None

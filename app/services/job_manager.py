@@ -21,14 +21,18 @@ from app.models import (
     MelodyStatus,
     OutputInfo,
     SourceInfo,
+    StemSeparationMetadata,
+    StemTaskStatus,
 )
-from app.models.melody import MeterHint
+from app.models.melody import MelodySource, MeterHint
 from app.services.artifacts import JobArtifacts
 from app.services.files import safe_child
 from app.services.key_analyzer import LibrosaKeyAnalyzer
 from app.services.key_names import shift_options
 from app.services.melody import build_notation_lines
-from app.services.pipelines import AnalyzePipeline, MelodyPipeline, TransposePipeline
+from app.services.pipelines import AnalyzePipeline, MelodyPipeline, StemPipeline, TransposePipeline
+from app.services.pipelines.melody import resolve_melody_source, sync_best_melody_alias
+from app.services.pipelines.stems import read_stem_metadata
 from app.services.task_queue import QueueItem, TaskQueue
 from app.services.youtube import CanonicalYouTubeUrl, YouTubeAdapter
 
@@ -42,6 +46,16 @@ class MelodySubtask:
     progress: int = 0
     meter_hint: MeterHint = "auto"
     result: MelodyAnalysisResult | None = None
+    error: ErrorDetail | None = None
+    source_requested: MelodySource = "auto"
+
+
+@dataclass(slots=True)
+class StemSubtask:
+    status: StemTaskStatus = StemTaskStatus.NOT_STARTED
+    stage: str = "not_started"
+    progress: int = 0
+    metadata: StemSeparationMetadata | None = None
     error: ErrorDetail | None = None
 
 
@@ -65,6 +79,7 @@ class Job:
     active_bitrate_kbps: int | None = None
     error: ErrorDetail | None = None
     melody: MelodySubtask = field(default_factory=MelodySubtask)
+    stems: StemSubtask = field(default_factory=StemSubtask)
 
     @property
     def root(self) -> Path:
@@ -76,25 +91,33 @@ class JobManager:
         self.settings = settings
         self.jobs: dict[str, Job] = {}
         self.queue = TaskQueue(settings.max_queue_size)
+        self.stem_queue = TaskQueue(settings.max_queue_size)
         self.youtube = YouTubeAdapter(settings)
         self.analyzer = LibrosaKeyAnalyzer()
         self.worker_task: asyncio.Task | None = None
         self.cleanup_task: asyncio.Task | None = None
+        self.stem_worker_task: asyncio.Task | None = None
         self.running: dict[str, asyncio.Task] = {}
+        self.stem_running: dict[str, asyncio.Task] = {}
         self._submissions: dict[str, deque[float]] = {}
 
     async def start(self) -> None:
         self.settings.work_root.mkdir(parents=True, exist_ok=True)
         await self._remove_stale_directories()
         self.worker_task = asyncio.create_task(self._worker(), name="job-worker")
+        self.stem_worker_task = asyncio.create_task(self._stem_worker(), name="stem-worker")
         self.cleanup_task = asyncio.create_task(self._cleanup_loop(), name="job-cleanup")
 
     async def stop(self) -> None:
-        for task in (self.worker_task, self.cleanup_task):
+        for task in (self.worker_task, self.stem_worker_task, self.cleanup_task):
             if task:
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (self.worker_task, self.cleanup_task) if task),
+            *(
+                task
+                for task in (self.worker_task, self.stem_worker_task, self.cleanup_task)
+                if task
+            ),
             return_exceptions=True,
         )
 
@@ -188,7 +211,7 @@ class JobManager:
         return None
 
     async def request_melody(
-        self, job: Job, force: bool, meter_hint: MeterHint
+        self, job: Job, force: bool, meter_hint: MeterHint, source: MelodySource = "auto"
     ) -> bool:
         if not self.settings.enable_melody_analysis:
             raise AppError(404, "FEATURE_DISABLED", "主旋律分析功能目前未啟用。")
@@ -205,29 +228,77 @@ class JobManager:
             raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
         if not job.artifacts.analysis_audio.exists():
             raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
-        if not force and job.artifacts.melody_json.exists() and job.artifacts.melody_midi.exists():
+        source_used, source_path = resolve_melody_source(job, source)
+        variant_json = job.artifacts.melody_variant_json(source_used)
+        variant_midi = job.artifacts.melody_variant_midi(source_used)
+        if not force and variant_json.exists() and variant_midi.exists():
             try:
                 job.melody.result = MelodyAnalysisResult.model_validate_json(
-                    job.artifacts.melody_json.read_text(encoding="utf-8")
+                    variant_json.read_text(encoding="utf-8")
                 )
             except (OSError, ValueError):
                 pass
             else:
-                job.melody.status = MelodyStatus.COMPLETED
-                job.melody.stage = "completed"
-                job.melody.progress = 100
-                job.melody.meter_hint = job.melody.result.meter_hint
-                job.melody.error = None
-                return True
+                if (
+                    job.melody.result.meter_hint != meter_hint
+                    or job.melody.result.melody_source_used != source_used
+                ):
+                    job.melody.result = None
+                else:
+                    priority = tuple(self.settings.melody_source_priority.split(","))
+                    sync_best_melody_alias(job, priority)
+                    job.melody.status = MelodyStatus.COMPLETED
+                    job.melody.stage = "completed"
+                    job.melody.progress = 100
+                    job.melody.meter_hint = job.melody.result.meter_hint
+                    job.melody.source_requested = source
+                    job.melody.error = None
+                    return True
+        if not source_path.exists():
+            raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
         if self.queue.full():
             raise AppError(503, "SERVICE_BUSY", "目前處理工作較多，請稍後再試。", True)
         job.melody.status = MelodyStatus.QUEUED
         job.melody.stage = "queued"
         job.melody.progress = 0
         job.melody.meter_hint = meter_hint
+        job.melody.source_requested = source
         job.melody.result = None
         job.melody.error = None
-        await self.queue.put(QueueItem(job.job_id, "melody", meter_hint=meter_hint))
+        await self.queue.put(
+            QueueItem(job.job_id, "melody", meter_hint=meter_hint, melody_source=source)
+        )
+        return False
+
+    async def request_stems(self, job: Job, force: bool) -> bool:
+        if job.stems.status in {StemTaskStatus.QUEUED, StemTaskStatus.RUNNING}:
+            raise AppError(409, "STEMS_ALREADY_RUNNING", "人聲／伴奏分離正在執行中。", True)
+        if job.status not in {JobStatus.READY, JobStatus.COMPLETED} or not job.source_path:
+            raise AppError(422, "STEM_SOURCE_NOT_READY", "請先完成歌曲分析後再產生人聲／伴奏。")
+        metadata = read_stem_metadata(job.artifacts.stems_metadata_json)
+        if (
+            not force
+            and self.settings.stem_cache_enabled
+            and metadata
+            and metadata.status == "completed"
+            and job.artifacts.vocals_wav.exists()
+            and job.artifacts.vocals_wav.stat().st_size > 44
+            and job.artifacts.accompaniment_wav.exists()
+            and job.artifacts.accompaniment_wav.stat().st_size > 44
+        ):
+            job.stems.metadata = metadata.model_copy(update={"cached": True})
+            job.stems.status = StemTaskStatus.COMPLETED
+            job.stems.stage = "completed"
+            job.stems.progress = 100
+            return True
+        if self.stem_queue.full():
+            raise AppError(503, "SERVICE_BUSY", "GPU 工作排程已滿，請稍後再試。", True)
+        job.stems.status = StemTaskStatus.QUEUED
+        job.stems.stage = "queued"
+        job.stems.progress = 0
+        job.stems.metadata = None
+        job.stems.error = None
+        await self.stem_queue.put(QueueItem(job.job_id, "stems", force=force))
         return False
 
     def melody_public(self, job: Job) -> dict:
@@ -239,6 +310,7 @@ class JobManager:
             "stage": job.melody.stage,
             "progress": job.melody.progress,
             "meter_hint": job.melody.meter_hint,
+            "source_requested": job.melody.source_requested,
         }
         if job.melody.error:
             payload["error"] = job.melody.error.model_dump(mode="json")
@@ -253,6 +325,10 @@ class JobManager:
                 "time_signature": result.time_signature,
                 "summary": result.summary.model_dump(mode="json"),
                 "warnings": result.warnings,
+                "melody_source_used": result.melody_source_used,
+                "pitch_backend": result.pitch_backend,
+                "separation_backend": result.separation_backend,
+                "separation_status": result.separation_status,
                 "preview": {
                     "key": result.key,
                     "bpm": result.bpm,
@@ -264,6 +340,38 @@ class JobManager:
                     "midi_url": f"/api/jobs/{job.job_id}/melody/download/midi",
                 },
             }
+        return payload
+
+    def stems_public(self, job: Job) -> dict:
+        payload: dict = {
+            "job_id": job.job_id,
+            "status": job.stems.status,
+            "stage": job.stems.stage,
+            "progress": job.stems.progress,
+            "enabled": self.settings.stem_separation_enabled,
+        }
+        metadata = job.stems.metadata
+        if metadata:
+            payload.update(
+                {
+                    "artifact_status": metadata.status,
+                    "backend": metadata.backend,
+                    "model": metadata.model,
+                    "device": metadata.device,
+                    "cached": metadata.cached,
+                    "vocals_available": job.artifacts.vocals_wav.exists(),
+                    "accompaniment_available": job.artifacts.accompaniment_wav.exists(),
+                    "warnings": metadata.warnings,
+                    "error": metadata.error,
+                }
+            )
+            if metadata.status == "completed":
+                payload["downloads"] = {
+                    "vocals_url": f"/api/jobs/{job.job_id}/stems/vocals",
+                    "accompaniment_url": f"/api/jobs/{job.job_id}/stems/accompaniment",
+                }
+        elif job.stems.error:
+            payload["error"] = job.stems.error.model_dump(mode="json")
         return payload
 
     def public(self, job: Job) -> JobPublic:
@@ -295,7 +403,10 @@ class JobManager:
             active_shift=job.active_shift,
             active_bitrate_kbps=job.active_bitrate_kbps,
             error=job.error,
-            features={"melody_analysis": self.settings.enable_melody_analysis},
+            features={
+                "melody_analysis": self.settings.enable_melody_analysis,
+                "stem_separation": self.settings.stem_separation_enabled,
+            },
         )
 
     async def delete(self, job: Job) -> None:
@@ -304,6 +415,10 @@ class JobManager:
         if running:
             running.cancel()
             await asyncio.gather(running, return_exceptions=True)
+        stem_running = self.stem_running.get(job.job_id)
+        if stem_running:
+            stem_running.cancel()
+            await asyncio.gather(stem_running, return_exceptions=True)
         self.jobs.pop(job.job_id, None)
         await asyncio.to_thread(shutil.rmtree, job.root, True)
 
@@ -325,7 +440,9 @@ class JobManager:
                     )
                 else:
                     pipeline = MelodyPipeline(self.settings)
-                    operation = asyncio.create_task(pipeline.run(job, item.meter_hint))
+                    operation = asyncio.create_task(
+                        pipeline.run(job, item.meter_hint, item.melody_source)
+                    )
                 self.running[job.job_id] = operation
                 result = await operation
                 if item.operation == "melody":
@@ -387,6 +504,51 @@ class JobManager:
                 self.running.pop(item.job_id, None)
                 self.queue.task_done()
 
+    async def _stem_worker(self) -> None:
+        while True:
+            item = await self.stem_queue.get()
+            try:
+                job = self.jobs.get(item.job_id)
+                if not job or job.status == JobStatus.CANCELLED:
+                    continue
+                job.stems.status = StemTaskStatus.RUNNING
+                job.stems.stage = "separating"
+                job.stems.progress = 10
+                operation = asyncio.create_task(StemPipeline(self.settings).run(job, item.force))
+                self.stem_running[job.job_id] = operation
+                metadata = await operation
+                job.stems.metadata = metadata
+                job.stems.progress = 100
+                job.stems.error = None
+                mapping = {
+                    "completed": StemTaskStatus.COMPLETED,
+                    "fallback": StemTaskStatus.FALLBACK,
+                    "skipped": StemTaskStatus.SKIPPED,
+                    "failed": StemTaskStatus.FAILED,
+                }
+                job.stems.status = mapping[metadata.status]
+                job.stems.stage = metadata.status
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                if current and current.cancelling():
+                    raise
+                continue
+            except Exception:
+                job = self.jobs.get(item.job_id)
+                if job:
+                    job.stems.status = StemTaskStatus.FAILED
+                    job.stems.stage = "failed"
+                    job.stems.progress = 0
+                    job.stems.error = ErrorDetail(
+                        code="STEM_SEPARATION_FAILED",
+                        message="無法產生人聲／伴奏素材，原本的分析與轉調功能仍可使用。",
+                        retryable=True,
+                    )
+                logger.exception("unexpected stem failure job_id=%s", item.job_id)
+            finally:
+                self.stem_running.pop(item.job_id, None)
+                self.stem_queue.task_done()
+
     def _is_terminal(self, job: Job) -> bool:
         return job.status in {
             JobStatus.READY,
@@ -407,6 +569,10 @@ class JobManager:
                 if running:
                     running.cancel()
                     await asyncio.gather(running, return_exceptions=True)
+                stem_running = self.stem_running.get(job.job_id)
+                if stem_running:
+                    stem_running.cancel()
+                    await asyncio.gather(stem_running, return_exceptions=True)
                 self.jobs.pop(job.job_id, None)
                 await asyncio.to_thread(shutil.rmtree, job.root, True)
 

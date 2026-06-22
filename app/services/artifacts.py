@@ -43,6 +43,36 @@ class JobArtifacts:
         return safe_child(self.analysis_dir, "melody.mid")
 
     @property
+    def stems_dir(self) -> Path:
+        return safe_child(self.analysis_dir, "stems")
+
+    @property
+    def vocals_wav(self) -> Path:
+        return safe_child(self.stems_dir, "vocals.wav")
+
+    @property
+    def accompaniment_wav(self) -> Path:
+        return safe_child(self.stems_dir, "accompaniment.wav")
+
+    @property
+    def stems_metadata_json(self) -> Path:
+        return safe_child(self.stems_dir, "metadata.json")
+
+    @property
+    def melody_dir(self) -> Path:
+        return safe_child(self.analysis_dir, "melody")
+
+    def melody_variant_json(self, source: str) -> Path:
+        if source not in {"mix", "vocals"}:
+            raise ValueError("unsupported melody source")
+        return safe_child(self.melody_dir, f"{source}_pyin.json")
+
+    def melody_variant_midi(self, source: str) -> Path:
+        if source not in {"mix", "vocals"}:
+            raise ValueError("unsupported melody source")
+        return safe_child(self.melody_dir, f"{source}_pyin.mid")
+
+    @property
     def thumbnail(self) -> Path:
         # Kept at the job root while the YouTube adapter owns thumbnail download.
         return safe_child(self.root, "thumbnail.jpg")

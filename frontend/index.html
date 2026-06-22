@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>YouTube 歌曲轉調工具</title>
+  <title>yt2mp3 練唱素材生成工具</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body><main class="shell">
   <header class="page-header">
     <div>
       <p class="eyebrow">yt2mp3</p>
-      <h1>YouTube 歌曲轉調工具</h1>
-      <p class="lede">貼上你有權使用的 YouTube 影片網址，分析原調後選擇升降半音並輸出 MP3。</p>
+      <h1>練唱素材生成工具</h1>
+      <p class="lede">分析原調、輸出升降 Key MP3，並可使用本機 GPU 產生人聲與伴奏素材。</p>
     </div>
     <button id="logout" class="secondary compact" type="button">登出</button>
   </header>
@@ -33,7 +33,7 @@
     <span class="phase-connector" aria-hidden="true"></span>
     <button type="button" class="phase-step" data-phase-step="2" disabled>
       <span class="phase-number">2</span>
-      <span><strong>主旋律簡譜</strong><small>產生 Melody JSON 與 MIDI</small></span>
+      <span><strong>練唱分析</strong><small>人聲／伴奏與旋律預覽</small></span>
     </button>
   </nav>
   <section id="status" class="status hidden" aria-live="polite"></section>

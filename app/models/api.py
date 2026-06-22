@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.melody import MeterHint
+from app.models.melody import MelodySource, MeterHint
 
 
 class AnalyzeRequest(BaseModel):
@@ -17,3 +17,8 @@ class TransposeRequest(BaseModel):
 class MelodyRequest(BaseModel):
     force: bool = False
     meter_hint: MeterHint = "auto"
+    source: MelodySource = "auto"
+
+
+class StemRequest(BaseModel):
+    force: bool = False

@@ -40,6 +40,17 @@ class Settings(BaseSettings):
     melody_fmin: str = "C2"
     melody_fmax: str = "C6"
     melody_max_notes: int = Field(default=2000, ge=1, le=10000)
+    stem_separation_enabled: bool = False
+    stem_separation_backend: Literal["auto", "demucs", "none"] = "auto"
+    stem_separation_device: Literal["auto", "cuda", "cpu"] = "auto"
+    demucs_python: Path = Path("/home/startech/venvs/yt2mp3-gpu/bin/python")
+    demucs_model: str = "htdemucs"
+    demucs_two_stems: Literal["vocals"] = "vocals"
+    demucs_timeout_seconds: int = Field(default=900, ge=30, le=7200)
+    demucs_clean_env: bool = True
+    allow_cpu_heavy_mode: bool = False
+    stem_cache_enabled: bool = True
+    melody_source_priority: str = "vocals,mix"
 
     @field_validator("shift_range")
     @classmethod
@@ -55,8 +66,30 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("demucs_model")
+    @classmethod
+    def validate_demucs_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > 100 or not all(c.isalnum() or c in "._-" for c in value):
+            raise ValueError("DEMUCS_MODEL contains unsupported characters")
+        return value
+
+    @field_validator("melody_source_priority")
+    @classmethod
+    def validate_melody_source_priority(cls, value: str) -> str:
+        sources = [item.strip() for item in value.split(",") if item.strip()]
+        if set(sources) != {"vocals", "mix"} or len(sources) != 2:
+            raise ValueError("MELODY_SOURCE_PRIORITY must contain vocals,mix once each")
+        return ",".join(sources)
+
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
+        if (
+            self.stem_separation_enabled
+            and self.stem_separation_backend != "none"
+            and not self.demucs_clean_env
+        ):
+            raise ValueError("DEMUCS_CLEAN_ENV must be true when Demucs is enabled")
         if self.app_env == "production":
             if not self.app_password:
                 raise ValueError("APP_PASSWORD is required in production")

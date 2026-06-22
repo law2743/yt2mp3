@@ -5,7 +5,13 @@ import math
 from pathlib import Path
 from typing import Any
 
-from app.models.melody import MelodyAnalysisResult, MelodyNote, MelodySummary, MeterHint
+from app.models.melody import (
+    MelodyAnalysisResult,
+    MelodyNote,
+    MelodySourceUsed,
+    MelodySummary,
+    MeterHint,
+)
 
 _NOTE_NAMES = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
 _DEGREE_LABELS = ("1", "#1", "2", "b3", "3", "4", "#4", "5", "b6", "6", "b7", "7")
@@ -38,7 +44,7 @@ def _beat_position(time_sec: float, beat_times: Any) -> float | None:
 
 
 def _meter_metadata(meter_hint: MeterHint) -> tuple[str, str | None]:
-    # Phase 1A deliberately does not claim automatic meter recognition.
+    # Phase 2A deliberately does not claim automatic meter recognition.
     if meter_hint in {"4/4", "3/4", "6/8"}:
         return meter_hint, meter_hint
     return "none", None
@@ -171,15 +177,17 @@ def analyze_melody(
     fmin: str,
     fmax: str,
     max_notes: int,
+    melody_source_used: MelodySourceUsed = "mix",
+    source_audio_path: str = "analysis/mono-22050.wav",
+    separation_backend: str | None = None,
+    separation_status: str = "missing",
 ) -> None:
     import librosa
     import numpy as np
 
     y, sample_rate = librosa.load(source, sr=None, mono=True)
     hop_length = 512
-    tempo_raw, beat_frames = librosa.beat.beat_track(
-        y=y, sr=sample_rate, hop_length=hop_length
-    )
+    tempo_raw, beat_frames = librosa.beat.beat_track(y=y, sr=sample_rate, hop_length=hop_length)
     tempo = float(np.asarray(tempo_raw).reshape(-1)[0]) if np.size(tempo_raw) else 0.0
     bpm = round(tempo, 3) if math.isfinite(tempo) and tempo > 0 and len(beat_frames) >= 2 else None
     beat_times = librosa.frames_to_time(beat_frames, sr=sample_rate, hop_length=hop_length)
@@ -255,11 +263,15 @@ def analyze_melody(
             truncated = True
             break
 
-    warnings = ["此為主旋律候選草稿，可能包含伴奏或和聲音。"]
+    warnings = ["此為 CPU-only pYIN 旋律預覽，不代表正式樂譜或準確扒譜結果。"]
+    if melody_source_used == "mix":
+        warnings.append("旋律由完整混音產生，可能包含伴奏、Bass 或和聲干擾。")
+    else:
+        warnings.append("旋律由人聲 stem 產生；分離 artifact 或和聲仍可能影響結果。")
     if bpm is None:
         warnings.append("無法可靠估計 BPM；MIDI 使用 120 BPM。")
     if meter_hint == "auto":
-        warnings.append("Phase 1A 未自動判定拍號，meter_used 已回退為 none。")
+        warnings.append("Phase 2A 未自動判定拍號，meter_used 已回退為 none。")
     if truncated:
         warnings.append(f"音符數已達上限 {max_notes}，後續候選音符未輸出。")
     if not notes:
@@ -267,6 +279,12 @@ def analyze_melody(
 
     result = MelodyAnalysisResult(
         job_id=job_id,
+        source_wav=source_audio_path,
+        melody_source_used=melody_source_used,
+        source_audio_path=source_audio_path,
+        separation_backend=separation_backend,
+        separation_status=separation_status,
+        is_fallback=True,
         key=key,
         mode=mode,
         bpm=bpm,
