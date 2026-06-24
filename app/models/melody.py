@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 MeterHint = Literal["auto", "none", "4/4", "3/4", "6/8"]
 MeterUsed = Literal["none", "4/4", "3/4", "6/8"]
@@ -50,11 +50,25 @@ class MelodySummary(BaseModel):
     end_sec: float | None = None
 
 
+class MelodyDebugMetadata(BaseModel):
+    pitch_backend: Literal["pyin"] = "pyin"
+    source: MelodySourceUsed = "mix"
+    requested_source: MelodySource = "auto"
+    voiced_ratio: float = Field(ge=0, le=1)
+    note_count: int = Field(ge=0)
+    avg_note_duration: float = Field(ge=0)
+    octave_jump_count: int = Field(ge=0)
+    confidence_threshold: float = Field(ge=0, le=1)
+    voicing_threshold: float = Field(ge=0, le=1)
+
+
 class MelodyAnalysisResult(BaseModel):
     job_id: str
     status: Literal["completed"] = "completed"
     algorithm_version: str = "librosa-pyin-melody-v1"
     source_wav: str = "analysis/mono-22050.wav"
+    requested_source: MelodySource = "auto"
+    selected_source: MelodySourceUsed = "mix"
     melody_source_used: MelodySourceUsed = "mix"
     source_audio_path: str = "analysis/mono-22050.wav"
     pitch_backend: Literal["pyin"] = "pyin"
@@ -69,4 +83,12 @@ class MelodyAnalysisResult(BaseModel):
     time_signature: str | None = None
     notes: list[MelodyNote]
     summary: MelodySummary
+    debug_metadata: MelodyDebugMetadata | None = None
     warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def backfill_selected_source(cls, value):
+        if isinstance(value, dict) and "selected_source" not in value:
+            value = {**value, "selected_source": value.get("melody_source_used", "mix")}
+        return value

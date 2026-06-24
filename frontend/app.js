@@ -365,8 +365,12 @@ function renderMelodyState(jobId, melody) {
     const lines = result.preview?.numbered_notation_lines || [];
     const notation = lines.length ? lines.map(escapeHtml).join("\n") : "沒有足夠清楚的旋律候選音符。";
     const summary = result.summary;
+    const selectedSource = result.selected_source || result.melody_source_used || "mix";
+    const requestedSource = result.requested_source || melody.source_requested || "auto";
     content.innerHTML = `
       <div class="melody-summary">
+        <div><span>旋律來源</span><strong>${escapeHtml(selectedSource)}</strong></div>
+        <div><span>來源選擇</span><strong>${escapeHtml(requestedSource)}</strong></div>
         <div><span>估計 BPM</span><strong>${result.bpm ? Math.round(result.bpm) : "—"}</strong></div>
         <div><span>拍號</span><strong>${escapeHtml(result.meter_used || "none")}</strong></div>
         <div><span>平均可信度</span><strong>${Math.round(summary.average_confidence * 100)}%</strong></div>

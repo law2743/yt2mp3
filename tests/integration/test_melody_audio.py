@@ -60,6 +60,12 @@ def _analyze(tmp_path, audio, name="fixture"):
 def test_silence_noise_and_vibrato_are_not_fragmented(tmp_path, name, audio, maximum_notes):
     result, midi_path = _analyze(tmp_path, audio, name)
     assert result.summary.note_count <= maximum_notes
+    assert result.selected_source == "mix"
+    assert result.debug_metadata is not None
+    assert result.debug_metadata.note_count == result.summary.note_count
+    assert result.debug_metadata.voiced_ratio == result.summary.voiced_ratio
+    assert result.debug_metadata.confidence_threshold == 0.45
+    assert result.debug_metadata.voicing_threshold == 0.45
     assert midi_path.stat().st_size > 0
 
 
@@ -99,8 +105,10 @@ async def test_melody_pipeline_reuses_analysis_audio_and_exports_atomically(tmp_
         candidates=[KeyCandidate(key="C Major", score=1)],
         algorithm_version="fixture",
     )
-    result = await MelodyPipeline(settings).run(job, "6/8")
+    result = await MelodyPipeline(settings).run(job, "6/8", "auto")
     assert result.notes[0].midi_note == 69
+    assert result.requested_source == "auto"
+    assert result.selected_source == "mix"
     assert result.meter_used == "6/8"
     assert job.artifacts.melody_json.exists()
     assert job.artifacts.melody_midi.read_bytes().startswith(b"MThd")

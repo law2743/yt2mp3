@@ -5,7 +5,7 @@
 目標讀者：Codex／開發者
 開發目標：建立 Render 靜態前端與 Tailscale 私有本機 API，讓使用者貼上 YouTube 網址、分析歌曲調性，選擇升降半音後輸出 MP3。
 
-> 文件定位：本文件保留為 v1.1 MVP 的歷史產品需求與驗收基準。本文內的舊 roadmap 不再代表現行 Phase 編號；現行部署、程式結構與 Phase 1～5 發展規劃請以 `README.md` 為準。
+> 文件定位：本文件保留為 v1.1 MVP 的歷史產品需求與驗收基準。本文內的舊 roadmap 不再代表現行 Phase 編號；現行部署、程式結構與 Phase 1～5 發展規劃請以 `../README.md` 為準。
 
 ---
 

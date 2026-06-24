@@ -51,9 +51,11 @@ def test_stem_artifact_paths_and_metadata_round_trip(tmp_path):
 def test_demucs_environment_is_cleaned(monkeypatch, tmp_path):
     monkeypatch.setenv("LD_LIBRARY_PATH", "/foreign/cudnn")
     monkeypatch.setenv("PYTHONPATH", "/foreign/python")
+    
     backend = DemucsStemSeparator(
         Settings(app_env="test", work_root=tmp_path, demucs_clean_env=True)
     )
+
     environment = backend._environment()
     assert "LD_LIBRARY_PATH" not in environment
     assert "PYTHONPATH" not in environment

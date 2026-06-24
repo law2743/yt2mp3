@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-pydantic-settings
-itsdangerous
-yt-dlp[default]
-librosa
-mido
-soundfile
-pillow

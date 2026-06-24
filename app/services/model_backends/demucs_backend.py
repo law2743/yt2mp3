@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.models.stem import StemSeparationMetadata
+from app.services.gpu_subprocess_env import build_gpu_subprocess_env
 from app.services.stem_separator import StemSeparationRequest
 
 
@@ -28,11 +29,10 @@ class DemucsStemSeparator:
         self.settings = settings
 
     def _environment(self) -> dict[str, str]:
-        environment = os.environ.copy()
-        if self.settings.demucs_clean_env:
-            environment.pop("LD_LIBRARY_PATH", None)
-            environment.pop("PYTHONPATH", None)
-        return environment
+        return build_gpu_subprocess_env(
+            mode="torch",
+            gpu_python=self.settings.demucs_python,
+        )
 
     async def _run(
         self, *command: str, timeout_seconds: int | None = None

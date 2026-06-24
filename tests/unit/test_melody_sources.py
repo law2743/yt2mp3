@@ -48,6 +48,17 @@ def test_auto_uses_mix_until_vocals_exists(tmp_path):
     assert (used, path) == ("vocals", job.artifacts.vocals_wav)
 
 
+def test_auto_prefers_existing_vocals_over_mix(tmp_path):
+    job = _job(tmp_path)
+    job.artifacts.stems_dir.mkdir()
+    job.artifacts.vocals_wav.write_bytes(b"vocals")
+
+    used, path = resolve_melody_source(job, "auto")
+
+    assert used == "vocals"
+    assert path == job.artifacts.vocals_wav
+
+
 def test_explicit_vocals_requires_stem(tmp_path):
     job = _job(tmp_path)
     with pytest.raises(AppError) as error:

@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-def clean_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    environment.pop("LD_LIBRARY_PATH", None)
-    environment.pop("PYTHONPATH", None)
-    return environment
+from app.services.gpu_subprocess_env import build_gpu_subprocess_env  # noqa: E402
 
 
 def main() -> int:
@@ -31,7 +30,7 @@ def main() -> int:
     if not args.python.is_file():
         parser.error(f"Demucs Python does not exist: {args.python}")
 
-    environment = clean_environment()
+    environment = build_gpu_subprocess_env(mode="torch", gpu_python=args.python)
     probe = subprocess.run(
         [
             str(args.python),

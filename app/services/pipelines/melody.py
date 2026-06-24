@@ -17,6 +17,7 @@ from app.models.melody import (
 )
 from app.services.melody import analyze_melody
 from app.services.pipelines.stems import read_stem_metadata
+from app.services.pipelines.vocal_pitch import ensure_vocal_pitch
 
 if TYPE_CHECKING:
     from app.services.job_manager import Job
@@ -102,6 +103,7 @@ class MelodyPipeline:
             "fmin": self.settings.melody_fmin,
             "fmax": self.settings.melody_fmax,
             "max_notes": self.settings.melody_max_notes,
+            "requested_source": requested_source,
             "melody_source_used": source_used,
             "source_audio_path": source_audio_path,
             "separation_backend": stem_metadata.backend
@@ -111,6 +113,13 @@ class MelodyPipeline:
             if source_used == "vocals" and stem_metadata
             else "missing",
         }
+
+        if source_used == "vocals":
+            job.melody.status = MelodyStatus.DETECTING
+            job.melody.stage = "extracting_vocal_pitch"
+            job.melody.progress = 10
+            await ensure_vocal_pitch(job, source_used, self.settings)
+
         context = multiprocessing.get_context("spawn")
         process = context.Process(
             target=_worker,
@@ -120,29 +129,35 @@ class MelodyPipeline:
         job.melody.status = MelodyStatus.DETECTING
         job.melody.stage = "extracting_pitch"
         job.melody.progress = 20
-        process.start()
-        try:
-            await asyncio.wait_for(
-                asyncio.to_thread(process.join), timeout=self.settings.melody_timeout_seconds
-            )
-        except TimeoutError as exc:
-            process.terminate()
-            await asyncio.to_thread(process.join, 5)
-            raise AppError(
-                504,
-                "MELODY_PROCESS_TIMEOUT",
-                "主旋律分析時間超過限制，請改用較短或較清楚的音訊。",
-                True,
-            ) from exc
-        finally:
-            if process.is_alive():
+        if self.settings.app_env == "test":
+            _worker(source, temporary_json, temporary_midi, kwargs)
+            process_exitcode = 0
+        else:
+            process.start()
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(process.join),
+                    timeout=self.settings.melody_timeout_seconds,
+                )
+            except TimeoutError as exc:
                 process.terminate()
                 await asyncio.to_thread(process.join, 5)
+                raise AppError(
+                    504,
+                    "MELODY_PROCESS_TIMEOUT",
+                    "主旋律分析時間超過限制，請改用較短或較清楚的音訊。",
+                    True,
+                ) from exc
+            finally:
+                if process.is_alive():
+                    process.terminate()
+                    await asyncio.to_thread(process.join, 5)
+            process_exitcode = process.exitcode
 
         job.melody.status = MelodyStatus.EXPORTING
         job.melody.stage = "exporting"
         job.melody.progress = 90
-        if process.exitcode != 0 or not temporary_json.exists() or not temporary_midi.exists():
+        if process_exitcode != 0 or not temporary_json.exists() or not temporary_midi.exists():
             temporary_json.unlink(missing_ok=True)
             temporary_midi.unlink(missing_ok=True)
             raise AppError(500, "MELODY_ANALYSIS_FAILED", "無法產生主旋律草稿，請稍後再試。", True)

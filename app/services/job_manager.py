@@ -325,8 +325,15 @@ class JobManager:
                 "time_signature": result.time_signature,
                 "summary": result.summary.model_dump(mode="json"),
                 "warnings": result.warnings,
+                "requested_source": result.requested_source,
+                "selected_source": result.selected_source,
                 "melody_source_used": result.melody_source_used,
                 "pitch_backend": result.pitch_backend,
+                "debug_metadata": (
+                    result.debug_metadata.model_dump(mode="json")
+                    if result.debug_metadata
+                    else None
+                ),
                 "separation_backend": result.separation_backend,
                 "separation_status": result.separation_status,
                 "preview": {

@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     demucs_two_stems: Literal["vocals"] = "vocals"
     demucs_timeout_seconds: int = Field(default=900, ge=30, le=7200)
     demucs_clean_env: bool = True
+    rmvpe_python: Path = Path("/home/startech/venvs/yt2mp3-gpu/bin/python")
+    rmvpe_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    rmvpe_voiced_confidence_threshold: float = Field(default=0.03, ge=0, le=1)
     allow_cpu_heavy_mode: bool = False
     stem_cache_enabled: bool = True
     melody_source_priority: str = "vocals,mix"

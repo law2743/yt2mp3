@@ -59,6 +59,14 @@ class JobArtifacts:
         return safe_child(self.stems_dir, "metadata.json")
 
     @property
+    def pitch_dir(self) -> Path:
+        return safe_child(self.analysis_dir, "pitch")
+
+    @property
+    def vocal_pitch_json(self) -> Path:
+        return safe_child(self.pitch_dir, "vocal_pitch.json")
+
+    @property
     def melody_dir(self) -> Path:
         return safe_child(self.analysis_dir, "melody")
 

@@ -7,7 +7,9 @@ from typing import Any
 
 from app.models.melody import (
     MelodyAnalysisResult,
+    MelodyDebugMetadata,
     MelodyNote,
+    MelodySource,
     MelodySourceUsed,
     MelodySummary,
     MeterHint,
@@ -177,6 +179,7 @@ def analyze_melody(
     fmin: str,
     fmax: str,
     max_notes: int,
+    requested_source: MelodySource = "auto",
     melody_source_used: MelodySourceUsed = "mix",
     source_audio_path: str = "analysis/mono-22050.wav",
     separation_backend: str | None = None,
@@ -277,9 +280,23 @@ def analyze_melody(
     if not notes:
         warnings.append("未找到符合可信度與最短音長條件的旋律候選音符。")
 
+    voiced_ratio = round(float(np.mean(valid)), 4) if len(valid) else 0
+    average_confidence = (
+        round(sum(note.confidence for note in notes) / len(notes), 4) if notes else 0
+    )
+    average_note_duration = (
+        round(sum(note.duration_sec for note in notes) / len(notes), 6) if notes else 0
+    )
+    octave_jump_count = sum(
+        1
+        for previous, current in zip(notes, notes[1:])
+        if abs(current.midi_note - previous.midi_note) >= 12
+    )
     result = MelodyAnalysisResult(
         job_id=job_id,
         source_wav=source_audio_path,
+        requested_source=requested_source,
+        selected_source=melody_source_used,
         melody_source_used=melody_source_used,
         source_audio_path=source_audio_path,
         separation_backend=separation_backend,
@@ -294,10 +311,8 @@ def analyze_melody(
         notes=notes,
         summary=MelodySummary(
             note_count=len(notes),
-            voiced_ratio=round(float(np.mean(valid)), 4) if len(valid) else 0,
-            average_confidence=(
-                round(sum(note.confidence for note in notes) / len(notes), 4) if notes else 0
-            ),
+            voiced_ratio=voiced_ratio,
+            average_confidence=average_confidence,
             estimated_range=(
                 f"{_note_name(min(note.midi_note for note in notes))}-"
                 f"{_note_name(max(note.midi_note for note in notes))}"
@@ -306,6 +321,18 @@ def analyze_melody(
             ),
             start_sec=notes[0].start_sec if notes else None,
             end_sec=notes[-1].end_sec if notes else None,
+        ),
+        debug_metadata=MelodyDebugMetadata(
+            source=melody_source_used,
+            requested_source=requested_source,
+            voiced_ratio=voiced_ratio,
+            note_count=len(notes),
+            avg_note_duration=average_note_duration,
+            octave_jump_count=octave_jump_count,
+            confidence_threshold=min_confidence,
+            # The current pipeline uses the same configured probability cutoff
+            # after librosa.pyin's voiced_flag gate; expose that behavior explicitly.
+            voicing_threshold=min_confidence,
         ),
         warnings=warnings,
     )
