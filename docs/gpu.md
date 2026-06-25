@@ -7,8 +7,7 @@ This document owns the engineering details for Host GPU mode. The README should 
 ## Runtime contract
 
 - The main FastAPI environment must not install or import Demucs, PyTorch, ONNX Runtime GPU, RMVPE, CUDA wheels, model weights, or GPU caches.
-- The production Docker image must not install `requirements-gpu.txt`.
-- Host GPU mode is for WSL / NVIDIA host-native FastAPI. It is not supported inside the current Docker deployment.
+- Host GPU mode is for WSL / NVIDIA host-native FastAPI. The project does not maintain a local Docker backend deployment path.
 - Every GPU subprocess must use `build_gpu_subprocess_env(mode, gpu_python)` from `app/services/gpu_subprocess_env.py`.
 - The host shell, Conda, or another virtualenv must not leak CUDA-related paths into GPU subprocesses.
 
@@ -39,7 +38,7 @@ python3.12 -m venv /home/startech/venvs/yt2mp3-gpu
 /home/startech/venvs/yt2mp3-gpu/bin/python -m pip install -r requirements-gpu.txt
 ```
 
-`requirements-gpu.txt` pins the currently verified GPU environment. Keep it separate from `requirements.txt`; the production Docker image must not install Demucs, PyTorch, RMVPE, ONNX Runtime, or CUDA packages.
+`requirements-gpu.txt` pins the currently verified GPU environment. Keep it separate from `requirements.txt`; the main FastAPI runtime must not install Demucs, PyTorch, RMVPE, ONNX Runtime, or CUDA packages.
 
 When GPU dependencies change, verify both Demucs and RMVPE smoke tests before updating README, `.env.example`, `requirements-gpu.txt`, this file, and `THIRD_PARTY_NOTICES.md` if needed.
 
@@ -109,10 +108,10 @@ Phase 2Cb is RMVPE-only:
 - Input is `analysis/stems/vocals.wav`.
 - Successful output uses `backend="rmvpe_onnx"` and `fallback_used=false`.
 - If RMVPE fails for a vocals source, the melody request fails with `PITCH_FAILED` or equivalent explicit status.
-- It must not fall back to pYIN.
+- It must not fall back to a CPU pitch backend.
 - It must not create a fake pitch artifact.
 
-pYIN remains part of the Phase 2A CPU-only melody preview path and should continue writing preview artifacts such as `analysis/melody/mix_pyin.json` or `analysis/melody/vocals_pyin.json`; it should not write `analysis/pitch/vocal_pitch.json`.
+The melody preview path is RMVPE-only and writes artifacts such as `analysis/melody/vocals_rmvpe.json` and `analysis/melody/vocals_rmvpe.mid`.
 
 ## RMVPE confidence and voiced semantics
 
@@ -205,6 +204,6 @@ When GPU subprocesses fail:
 - Do not pass through an existing `LD_LIBRARY_PATH` to GPU subprocesses.
 - Do not hand-write adapter-specific CUDA environment cleanup.
 - Do not import GPU packages in the main FastAPI env.
-- Do not install `requirements-gpu.txt` in the production Docker image.
+- Do not install `requirements-gpu.txt` in the main FastAPI env.
 - Do not create fake stems or fake pitch artifacts.
 - Add new GPU subprocess users to the shared helper instead.

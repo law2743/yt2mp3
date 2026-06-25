@@ -12,7 +12,7 @@ need to live at the repository root.
   roadmap.
 
 Files that stay at the repository root are there because tools or conventions
-expect them there: `README.md`, `LICENSE`, `Dockerfile`, `pyproject.toml`,
+expect them there: `README.md`, `LICENSE`, `pyproject.toml`,
 `requirements*.txt`, `.env.example`, and deployment config.
 
 ## Documentation consistency rules
@@ -37,11 +37,11 @@ The following details must stay consistent across docs:
   `build_gpu_subprocess_env(...)`.
 * `DEMUCS_PYTHON` and `RMVPE_PYTHON` should point to the same host GPU venv
   unless a future design explicitly separates them.
-* Docker deployment does not support host GPU Demucs / RMVPE and should keep
-  stem separation disabled.
-* Phase 2 vocal pitch is RMVPE-only. pYIN remains a CPU-only melody preview
-  backend and must not be used as a fake fallback for
-  `analysis/pitch/vocal_pitch.json`.
+* The local backend runs host-native in WSL. Docker is not maintained as a local
+  backend deployment path.
+* Phase 2 vocal pitch and melody preview are RMVPE-only. CPU pitch fallback
+  must not be used to create fake `analysis/pitch/vocal_pitch.json` or melody
+  artifacts.
 * `analysis/pitch/vocal_pitch.json` should only represent a real RMVPE vocal
   pitch result from `analysis/stems/vocals.wav`.
 
@@ -59,7 +59,7 @@ When changing dependencies:
 * Keep production dependencies in `requirements.txt`.
 * Keep development dependencies in `requirements-dev.txt`.
 * Keep host GPU dependencies in `requirements-gpu.txt`.
-* Do not add GPU dependencies to the production Docker image.
+* Do not add GPU dependencies to the main FastAPI runtime.
 * Update `THIRD_PARTY_NOTICES.md` if dependency or license coverage changes.
 
 Before merging documentation-only changes, run at least:

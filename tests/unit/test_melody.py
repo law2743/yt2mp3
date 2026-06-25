@@ -1,14 +1,16 @@
-import math
+import json
 
 import numpy as np
+import soundfile as sf
 
 from app.models.melody import MelodyAnalysisResult, MelodyNote, MelodySummary
 from app.services.melody import (
+    _auto_meter_metadata,
     _note_name,
     _numbered_notation,
     _write_midi,
+    analyze_rmvpe_melody,
     build_notation_lines,
-    segment_pitch_frames,
 )
 
 
@@ -22,21 +24,15 @@ def test_note_name_and_numbered_notation_mapping():
     assert _numbered_notation(60, 9) == (3, "b3,")
 
 
-def test_pitch_segmentation_filters_confidence_and_merges_short_gap():
-    f0 = np.array([440.0, math.nan, 440.0, 466.16, 440.0])
-    voiced = np.array([True, False, True, True, True])
-    confidence = np.array([0.9, 0.0, 0.8, 0.3, 0.2])
-    segments, valid = segment_pitch_frames(
-        f0,
-        voiced,
-        confidence,
-        frame_seconds=0.02,
-        min_confidence=0.45,
-        max_gap_merge_sec=0.03,
-    )
-    assert valid.tolist() == [True, False, True, False, False]
-    assert len(segments) == 1
-    assert segments[0][:3] == (0, 2, 69)
+def test_auto_meter_does_not_guess_silent_audio():
+    sample_rate = 22050
+    hop_length = 512
+    beat_frames = np.arange(16)
+    y = np.zeros(4096, dtype=np.float32)
+
+    meter, signature = _auto_meter_metadata(y, sample_rate, hop_length, beat_frames)
+
+    assert (meter, signature) == ("none", None)
 
 
 def _result(notes, meter_used="none"):
@@ -54,7 +50,7 @@ def _result(notes, meter_used="none"):
     )
 
 
-def test_preview_adds_only_clear_gap_rest_and_meter_separator():
+def test_preview_uses_four_bars_per_line():
     notes = [
         MelodyNote(
             note_id="n0001",
@@ -91,7 +87,7 @@ def test_preview_adds_only_clear_gap_rest_and_meter_separator():
             confidence=0.8,
         ),
     ]
-    assert build_notation_lines(_result(notes, "4/4")) == ["1 - - - - | 3"]
+    assert build_notation_lines(_result(notes, "4/4")) == ["| 1 | 3 | - | - |"]
 
 
 def test_melody_schema_and_empty_midi_are_serializable(tmp_path):
@@ -102,3 +98,74 @@ def test_melody_schema_and_empty_midi_are_serializable(tmp_path):
     path = tmp_path / "melody.mid"
     _write_midi(path, [], None)
     assert path.read_bytes().startswith(b"MThd")
+    import mido
+
+    midi = mido.MidiFile(path)
+    assert midi.type == 0
+    assert len(midi.tracks) == 1
+
+
+def test_rmvpe_pitch_points_generate_melody_json_and_midi(tmp_path):
+    source = tmp_path / "vocals.wav"
+    sample_rate = 16000
+    sf.write(source, np.zeros(sample_rate, dtype=np.float32), sample_rate)
+    pitch_json = tmp_path / "vocal_pitch.json"
+    points = [
+        {
+            "time": round(index * 0.01, 2),
+            "frequency_hz": 440.0,
+            "midi": 69.0,
+            "confidence": 0.9,
+            "voiced": True,
+        }
+        for index in range(30)
+    ]
+    pitch_json.write_text(
+        json.dumps(
+            {
+                "schema_version": "vocal_pitch.v1",
+                "backend": "rmvpe_onnx",
+                "fallback_used": False,
+                "input_source": "vocals",
+                "sample_rate": sample_rate,
+                "duration_seconds": 1.0,
+                "frame_hz": 100,
+                "hop_seconds": 0.01,
+                "voiced_confidence_threshold": 0.03,
+                "points": points,
+                "metadata": {
+                    "model": "rmvpe-onnx",
+                    "device": "cuda",
+                    "confidence_source": "rmvpe_onnx",
+                    "created_at": "2026-06-25T00:00:00Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "melody.json"
+    midi = tmp_path / "melody.mid"
+
+    analyze_rmvpe_melody(
+        source,
+        pitch_json,
+        output,
+        midi,
+        job_id="fixture",
+        key="C Major",
+        root_index=0,
+        mode="major",
+        meter_hint="none",
+        min_note_duration_sec=0.12,
+        max_gap_merge_sec=0.08,
+        min_confidence=0.45,
+        max_notes=2000,
+        beat_reference=source,
+    )
+
+    result = MelodyAnalysisResult.model_validate_json(output.read_text(encoding="utf-8"))
+    assert result.pitch_backend == "rmvpe_onnx"
+    assert result.is_fallback is False
+    assert result.notes[0].source == "rmvpe_onnx"
+    assert result.notes[0].midi_note == 69
+    assert midi.read_bytes().startswith(b"MThd")

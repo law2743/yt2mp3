@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -64,7 +65,9 @@ class YouTubeAdapter:
 
     def _base_args(self) -> list[str]:
         args = [
-            "yt-dlp",
+            sys.executable,
+            "-m",
+            "yt_dlp",
             "--no-playlist",
             "--no-warnings",
             "--socket-timeout",

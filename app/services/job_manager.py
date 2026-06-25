@@ -260,7 +260,7 @@ class JobManager:
             raise AppError(503, "SERVICE_BUSY", "目前處理工作較多，請稍後再試。", True)
         job.melody.status = MelodyStatus.QUEUED
         job.melody.stage = "queued"
-        job.melody.progress = 0
+        job.melody.progress = 1
         job.melody.meter_hint = meter_hint
         job.melody.source_requested = source
         job.melody.result = None
@@ -295,7 +295,7 @@ class JobManager:
             raise AppError(503, "SERVICE_BUSY", "GPU 工作排程已滿，請稍後再試。", True)
         job.stems.status = StemTaskStatus.QUEUED
         job.stems.stage = "queued"
-        job.stems.progress = 0
+        job.stems.progress = 1
         job.stems.metadata = None
         job.stems.error = None
         await self.stem_queue.put(QueueItem(job.job_id, "stems", force=force))
@@ -520,7 +520,7 @@ class JobManager:
                     continue
                 job.stems.status = StemTaskStatus.RUNNING
                 job.stems.stage = "separating"
-                job.stems.progress = 10
+                job.stems.progress = 1
                 operation = asyncio.create_task(StemPipeline(self.settings).run(job, item.force))
                 self.stem_running[job.job_id] = operation
                 metadata = await operation

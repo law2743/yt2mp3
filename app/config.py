@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     rmvpe_voiced_confidence_threshold: float = Field(default=0.03, ge=0, le=1)
     allow_cpu_heavy_mode: bool = False
     stem_cache_enabled: bool = True
-    melody_source_priority: str = "vocals,mix"
+    melody_source_priority: str = "vocals"
 
     @field_validator("shift_range")
     @classmethod
@@ -65,8 +65,10 @@ class Settings(BaseSettings):
     @field_validator("ytdlp_cookies_file", mode="before")
     @classmethod
     def empty_cookies_path_is_unset(cls, value: object) -> object:
-        if isinstance(value, str) and not value.strip():
-            return None
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized or normalized.startswith("#"):
+                return None
         return value
 
     @field_validator("demucs_model")
@@ -81,9 +83,9 @@ class Settings(BaseSettings):
     @classmethod
     def validate_melody_source_priority(cls, value: str) -> str:
         sources = [item.strip() for item in value.split(",") if item.strip()]
-        if set(sources) != {"vocals", "mix"} or len(sources) != 2:
-            raise ValueError("MELODY_SOURCE_PRIORITY must contain vocals,mix once each")
-        return ",".join(sources)
+        if "vocals" not in sources:
+            raise ValueError("MELODY_SOURCE_PRIORITY must include vocals")
+        return "vocals"
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

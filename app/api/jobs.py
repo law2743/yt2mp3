@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api.auth import authenticated_owner
+from app.config import Settings, get_settings
 from app.errors import AppError
 from app.models import AnalyzeRequest, MelodyRequest, MelodyStatus, StemRequest, TransposeRequest
 from app.models.stem import StemTaskStatus
+from app.services.audio import encode_mp3
 from app.services.files import safe_child, sanitize_filename
 from app.services.job_manager import JobManager
 from app.services.key_names import display_key
@@ -99,16 +101,25 @@ def _completed_stems(manager: JobManager, job_id: str, owner_id: str):
 async def download_vocals(
     job_id: str,
     request: Request,
+    bitrate_kbps: int = Query(default=192),
     owner_id: str = Depends(authenticated_owner),
+    settings: Settings = Depends(get_settings),
 ):
     manager, owner_id = _context(request, owner_id)
     job = _completed_stems(manager, job_id, owner_id)
     if not job.artifacts.vocals_wav.exists():
         raise AppError(404, "STEM_OUTPUT_NOT_FOUND", "人聲 stem 不存在或已失效。")
+    if bitrate_kbps not in {128, 192, 256}:
+        raise AppError(422, "INVALID_BITRATE", "請選擇畫面提供的位元率。")
+    output = job.artifacts.stem_mp3("vocals", bitrate_kbps)
+    if not output.exists() or output.stat().st_mtime < job.artifacts.vocals_wav.stat().st_mtime:
+        title = f"{job.source_info.title} 人聲" if job.source_info else "yt2mp3 vocals"
+        artist = job.source_info.uploader if job.source_info else None
+        await encode_mp3(job.artifacts.vocals_wav, output, settings, bitrate_kbps=bitrate_kbps, title=title, artist=artist)
     return FileResponse(
-        job.artifacts.vocals_wav,
-        media_type="audio/wav",
-        filename=f"vocals_{job.job_id}.wav",
+        output,
+        media_type="audio/mpeg",
+        filename=f"vocals_{job.job_id}_{bitrate_kbps}k.mp3",
         headers={"Cache-Control": "private, no-store"},
     )
 
@@ -117,16 +128,25 @@ async def download_vocals(
 async def download_accompaniment(
     job_id: str,
     request: Request,
+    bitrate_kbps: int = Query(default=192),
     owner_id: str = Depends(authenticated_owner),
+    settings: Settings = Depends(get_settings),
 ):
     manager, owner_id = _context(request, owner_id)
     job = _completed_stems(manager, job_id, owner_id)
     if not job.artifacts.accompaniment_wav.exists():
         raise AppError(404, "STEM_OUTPUT_NOT_FOUND", "伴奏 stem 不存在或已失效。")
+    if bitrate_kbps not in {128, 192, 256}:
+        raise AppError(422, "INVALID_BITRATE", "請選擇畫面提供的位元率。")
+    output = job.artifacts.stem_mp3("accompaniment", bitrate_kbps)
+    if not output.exists() or output.stat().st_mtime < job.artifacts.accompaniment_wav.stat().st_mtime:
+        title = f"{job.source_info.title} 伴奏" if job.source_info else "yt2mp3 accompaniment"
+        artist = job.source_info.uploader if job.source_info else None
+        await encode_mp3(job.artifacts.accompaniment_wav, output, settings, bitrate_kbps=bitrate_kbps, title=title, artist=artist)
     return FileResponse(
-        job.artifacts.accompaniment_wav,
-        media_type="audio/wav",
-        filename=f"accompaniment_{job.job_id}.wav",
+        output,
+        media_type="audio/mpeg",
+        filename=f"accompaniment_{job.job_id}_{bitrate_kbps}k.mp3",
         headers={"Cache-Control": "private, no-store"},
     )
 

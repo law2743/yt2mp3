@@ -1,0 +1,13 @@
+[Unit]
+Description=yt2mp3 FastAPI backend
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/startech/yt2mp3
+ExecStart=/home/startech/yt2mp3/start_backend.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

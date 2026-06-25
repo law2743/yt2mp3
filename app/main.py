@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from importlib.util import find_spec
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -108,7 +109,7 @@ async def health():
         "status": "ok",
         "version": __version__,
         "dependencies": {
-            "yt_dlp": shutil.which("yt-dlp") is not None,
+            "yt_dlp": find_spec("yt_dlp") is not None,
             "ffmpeg": shutil.which("ffmpeg") is not None,
             "ffprobe": shutil.which("ffprobe") is not None,
             "rubberband": shutil.which("rubberband") is not None,

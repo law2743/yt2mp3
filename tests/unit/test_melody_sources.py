@@ -38,10 +38,11 @@ def _job(tmp_path):
     )
 
 
-def test_auto_uses_mix_until_vocals_exists(tmp_path):
+def test_auto_requires_vocals(tmp_path):
     job = _job(tmp_path)
-    used, path = resolve_melody_source(job, "auto")
-    assert (used, path) == ("mix", job.artifacts.analysis_audio)
+    with pytest.raises(AppError) as error:
+        resolve_melody_source(job, "auto")
+    assert error.value.code == "VOCALS_SOURCE_NOT_READY"
     job.artifacts.stems_dir.mkdir()
     job.artifacts.vocals_wav.write_bytes(b"vocals")
     used, path = resolve_melody_source(job, "auto")
@@ -68,5 +69,6 @@ def test_explicit_vocals_requires_stem(tmp_path):
 
 def test_variant_paths_are_source_scoped(tmp_path):
     job = _job(tmp_path)
-    assert job.artifacts.melody_variant_json("mix").name == "mix_pyin.json"
-    assert job.artifacts.melody_variant_json("vocals").name == "vocals_pyin.json"
+    with pytest.raises(ValueError):
+        job.artifacts.melody_variant_json("mix")
+    assert job.artifacts.melody_variant_json("vocals").name == "vocals_rmvpe.json"

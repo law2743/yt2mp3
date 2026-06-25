@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 MeterHint = Literal["auto", "none", "4/4", "3/4", "6/8"]
 MeterUsed = Literal["none", "4/4", "3/4", "6/8"]
 MelodySource = Literal["auto", "mix", "vocals"]
-MelodySourceUsed = Literal["mix", "vocals"]
+MelodySourceUsed = Literal["vocals"]
 
 
 class MelodyStatus(StrEnum):
@@ -38,7 +38,7 @@ class MelodyNote(BaseModel):
     scale_degree: int | None = None
     numbered_notation: str | None = None
     confidence: float = Field(ge=0, le=1)
-    source: Literal["pyin"] = "pyin"
+    source: Literal["rmvpe_onnx"] = "rmvpe_onnx"
 
 
 class MelodySummary(BaseModel):
@@ -51,8 +51,8 @@ class MelodySummary(BaseModel):
 
 
 class MelodyDebugMetadata(BaseModel):
-    pitch_backend: Literal["pyin"] = "pyin"
-    source: MelodySourceUsed = "mix"
+    pitch_backend: Literal["rmvpe_onnx"] = "rmvpe_onnx"
+    source: MelodySourceUsed = "vocals"
     requested_source: MelodySource = "auto"
     voiced_ratio: float = Field(ge=0, le=1)
     note_count: int = Field(ge=0)
@@ -65,13 +65,13 @@ class MelodyDebugMetadata(BaseModel):
 class MelodyAnalysisResult(BaseModel):
     job_id: str
     status: Literal["completed"] = "completed"
-    algorithm_version: str = "librosa-pyin-melody-v1"
+    algorithm_version: str = "rmvpe-onnx-melody-v1"
     source_wav: str = "analysis/mono-22050.wav"
     requested_source: MelodySource = "auto"
-    selected_source: MelodySourceUsed = "mix"
-    melody_source_used: MelodySourceUsed = "mix"
+    selected_source: MelodySourceUsed = "vocals"
+    melody_source_used: MelodySourceUsed = "vocals"
     source_audio_path: str = "analysis/mono-22050.wav"
-    pitch_backend: Literal["pyin"] = "pyin"
+    pitch_backend: Literal["rmvpe_onnx"] = "rmvpe_onnx"
     separation_backend: Literal["demucs", "none"] | None = None
     separation_status: str = "missing"
     is_fallback: bool = True
@@ -90,5 +90,5 @@ class MelodyAnalysisResult(BaseModel):
     @classmethod
     def backfill_selected_source(cls, value):
         if isinstance(value, dict) and "selected_source" not in value:
-            value = {**value, "selected_source": value.get("melody_source_used", "mix")}
+            value = {**value, "selected_source": value.get("melody_source_used", "vocals")}
         return value

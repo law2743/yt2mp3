@@ -54,6 +54,13 @@ class JobArtifacts:
     def accompaniment_wav(self) -> Path:
         return safe_child(self.stems_dir, "accompaniment.wav")
 
+    def stem_mp3(self, stem: str, bitrate_kbps: int) -> Path:
+        if stem not in {"vocals", "accompaniment"}:
+            raise ValueError("unsupported stem")
+        if bitrate_kbps not in {128, 192, 256}:
+            raise ValueError("unsupported bitrate")
+        return safe_child(self.stems_dir, f"{stem}_{bitrate_kbps}k.mp3")
+
     @property
     def stems_metadata_json(self) -> Path:
         return safe_child(self.stems_dir, "metadata.json")
@@ -71,14 +78,14 @@ class JobArtifacts:
         return safe_child(self.analysis_dir, "melody")
 
     def melody_variant_json(self, source: str) -> Path:
-        if source not in {"mix", "vocals"}:
+        if source != "vocals":
             raise ValueError("unsupported melody source")
-        return safe_child(self.melody_dir, f"{source}_pyin.json")
+        return safe_child(self.melody_dir, "vocals_rmvpe.json")
 
     def melody_variant_midi(self, source: str) -> Path:
-        if source not in {"mix", "vocals"}:
+        if source != "vocals":
             raise ValueError("unsupported melody source")
-        return safe_child(self.melody_dir, f"{source}_pyin.mid")
+        return safe_child(self.melody_dir, "vocals_rmvpe.mid")
 
     @property
     def thumbnail(self) -> Path:

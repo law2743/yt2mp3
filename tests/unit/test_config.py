@@ -38,3 +38,4 @@ def test_shift_range_is_restricted():
 
 def test_empty_ytdlp_cookies_path_is_unset():
     assert Settings(ytdlp_cookies_file="").ytdlp_cookies_file is None
+    assert Settings(ytdlp_cookies_file="# YouTube-DL cookies 檔案路徑（可留空）").ytdlp_cookies_file is None

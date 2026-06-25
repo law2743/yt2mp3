@@ -8,6 +8,7 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+*.log
 .DS_Store
 *.mp3
 *.wav
