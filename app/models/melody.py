@@ -9,6 +9,7 @@ MeterHint = Literal["auto", "none", "4/4", "3/4", "6/8"]
 MeterUsed = Literal["none", "4/4", "3/4", "6/8"]
 MelodySource = Literal["auto", "mix", "vocals"]
 MelodySourceUsed = Literal["vocals"]
+PitchBackend = Literal["rmvpe_onnx", "adaptive_fusion"]
 
 
 class MelodyStatus(StrEnum):
@@ -38,7 +39,7 @@ class MelodyNote(BaseModel):
     scale_degree: int | None = None
     numbered_notation: str | None = None
     confidence: float = Field(ge=0, le=1)
-    source: Literal["rmvpe_onnx"] = "rmvpe_onnx"
+    source: PitchBackend = "rmvpe_onnx"
 
 
 class MelodySummary(BaseModel):
@@ -51,7 +52,7 @@ class MelodySummary(BaseModel):
 
 
 class MelodyDebugMetadata(BaseModel):
-    pitch_backend: Literal["rmvpe_onnx"] = "rmvpe_onnx"
+    pitch_backend: PitchBackend = "rmvpe_onnx"
     source: MelodySourceUsed = "vocals"
     requested_source: MelodySource = "auto"
     voiced_ratio: float = Field(ge=0, le=1)
@@ -71,7 +72,7 @@ class MelodyAnalysisResult(BaseModel):
     selected_source: MelodySourceUsed = "vocals"
     melody_source_used: MelodySourceUsed = "vocals"
     source_audio_path: str = "analysis/mono-22050.wav"
-    pitch_backend: Literal["rmvpe_onnx"] = "rmvpe_onnx"
+    pitch_backend: PitchBackend = "rmvpe_onnx"
     separation_backend: Literal["demucs", "none"] | None = None
     separation_status: str = "missing"
     is_fallback: bool = True

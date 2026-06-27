@@ -30,7 +30,8 @@ from app.services.files import safe_child
 from app.services.key_analyzer import LibrosaKeyAnalyzer
 from app.services.key_names import shift_options
 from app.services.melody import build_notation_lines
-from app.services.pipelines import AnalyzePipeline, MelodyPipeline, StemPipeline, TransposePipeline
+from app.services.pipelines import AnalyzePipeline, StemPipeline, TransposePipeline
+from app.services.pipelines.melody_fusion_pipeline import MelodyFusionPipeline as MelodyPipeline
 from app.services.pipelines.melody import resolve_melody_source, sync_best_melody_alias
 from app.services.pipelines.stems import read_stem_metadata
 from app.services.task_queue import QueueItem, TaskQueue

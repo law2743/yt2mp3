@@ -54,7 +54,7 @@ async def test_melody_failure_does_not_change_main_job_status(tmp_path, monkeypa
         def __init__(self, _settings):
             pass
 
-        async def run(self, _job, _meter_hint):
+        async def run(self, _job, _meter_hint, _source="auto"):
             raise AppError(500, "MELODY_ANALYSIS_FAILED", "fixture failure", True)
 
     monkeypatch.setattr(job_manager_module, "MelodyPipeline", FailingMelodyPipeline)
@@ -74,6 +74,8 @@ async def test_melody_failure_does_not_change_main_job_status(tmp_path, monkeypa
             algorithm_version="fixture",
         )
         ready.artifacts.analysis_audio.write_bytes(b"fixture")
+        ready.artifacts.stems_dir.mkdir()
+        ready.artifacts.vocals_wav.write_bytes(b"vocals")
         # Discard the queued analyze operation before adding melody.
         analyze_item = await manager.queue.get()
         assert analyze_item.operation == "analyze"

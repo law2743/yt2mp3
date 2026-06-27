@@ -77,15 +77,44 @@ class JobArtifacts:
     def melody_dir(self) -> Path:
         return safe_child(self.analysis_dir, "melody")
 
+    @property
+    def melody_fusion_dir(self) -> Path:
+        return safe_child(self.melody_dir, "fusion")
+
+    @property
+    def melody_fusion_inputs_dir(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "inputs")
+
+    def melody_fusion_input_csv(self, backend: str) -> Path:
+        if backend not in {"rmvpe", "torchcrepe", "fcpe", "pesto"}:
+            raise ValueError("unsupported pitch backend")
+        return safe_child(self.melody_fusion_inputs_dir, f"{backend}.csv")
+
+    @property
+    def melody_fusion_csv(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "fusion.csv")
+
+    @property
+    def melody_fusion_json(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "fusion.json")
+
+    @property
+    def melody_fusion_diagnostics_json(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "diagnostics.json")
+
+    @property
+    def vocals_mono_16000_wav(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "vocals_mono_16000.wav")
+
     def melody_variant_json(self, source: str) -> Path:
         if source != "vocals":
             raise ValueError("unsupported melody source")
-        return safe_child(self.melody_dir, "vocals_rmvpe.json")
+        return safe_child(self.melody_dir, "vocals_adaptive_fusion.json")
 
     def melody_variant_midi(self, source: str) -> Path:
         if source != "vocals":
             raise ValueError("unsupported melody source")
-        return safe_child(self.melody_dir, "vocals_rmvpe.mid")
+        return safe_child(self.melody_dir, "vocals_adaptive_fusion.mid")
 
     @property
     def thumbnail(self) -> Path:

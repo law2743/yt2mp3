@@ -7,6 +7,8 @@ need to live at the repository root.
 
 * `gpu.md`: host-native GPU venv, Demucs / RMVPE subprocess rules, smoke tests,
   and GPU troubleshooting notes.
+* `melody_fusion.md`: adaptive melody fusion CSV schema, artifacts, CLI, and
+  local WAV debug workflow.
 * `yt2mp3-spec.md`: historical MVP product and technical specification. The root
   `README.md` is the source of truth for the current deployment model and active
   roadmap.
@@ -39,9 +41,9 @@ The following details must stay consistent across docs:
   unless a future design explicitly separates them.
 * The local backend runs host-native in WSL. Docker is not maintained as a local
   backend deployment path.
-* Phase 2 vocal pitch and melody preview are RMVPE-only. CPU pitch fallback
-  must not be used to create fake `analysis/pitch/vocal_pitch.json` or melody
-  artifacts.
+* Phase 2 keeps `analysis/pitch/vocal_pitch.json` as a real RMVPE cache artifact.
+  Melody preview is adaptive fusion and must not use CPU pitch fallback or
+  RMVPE-only fallback to create fake fusion success.
 * `analysis/pitch/vocal_pitch.json` should only represent a real RMVPE vocal
   pitch result from `analysis/stems/vocals.wav`.
 
@@ -53,6 +55,8 @@ When changing artifact paths, update all relevant docs and tests together:
 * `analysis/pitch/vocal_pitch.json`
 * `analysis/melody/*.json`
 * `analysis/melody/*.mid`
+* `analysis/melody/fusion/*.json`
+* `analysis/melody/fusion/*.csv`
 
 When changing dependencies:
 

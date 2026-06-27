@@ -71,4 +71,4 @@ def test_variant_paths_are_source_scoped(tmp_path):
     job = _job(tmp_path)
     with pytest.raises(ValueError):
         job.artifacts.melody_variant_json("mix")
-    assert job.artifacts.melody_variant_json("vocals").name == "vocals_rmvpe.json"
+    assert job.artifacts.melody_variant_json("vocals").name == "vocals_adaptive_fusion.json"

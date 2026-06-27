@@ -310,6 +310,70 @@ def _rmvpe_segments(
     return segments, voiced_ratio
 
 
+def _fusion_segments(
+    fusion: dict[str, Any],
+    *,
+    min_confidence: float,
+    max_gap_merge_sec: float,
+) -> tuple[list[tuple[float, float, int, list[float], list[float]]], float]:
+    frames = fusion.get("frames") or []
+    if not isinstance(frames, list):
+        raise ValueError("fusion JSON frames must be a list")
+    frame_period_ms = float(fusion.get("frame_period_ms") or 10.0)
+    hop_seconds = frame_period_ms / 1000.0
+    segments: list[tuple[float, float, int, list[float], list[float]]] = []
+    current: tuple[float, float, int, list[float], list[float]] | None = None
+    voiced_count = 0
+    for frame in frames:
+        if not isinstance(frame, dict):
+            continue
+        confidence = safe_confidence(frame.get("confidence"))
+        f0_hz = safe_frequency(frame.get("f0_hz"))
+        if not frame.get("voiced") or f0_hz is None or confidence < min_confidence:
+            continue
+        voiced_count += 1
+        midi = 69.0 + 12.0 * math.log2(f0_hz / 440.0)
+        midi_note = round(midi)
+        if not 0 <= midi_note <= 127:
+            continue
+        start = float(frame.get("time_sec") or 0.0)
+        end = start + hop_seconds
+        if current is not None:
+            first, last, current_note, frequencies, confidences = current
+            gap = max(0.0, start - last)
+            if current_note == midi_note and gap <= max_gap_merge_sec:
+                frequencies.append(f0_hz)
+                confidences.append(confidence)
+                current = (first, end, current_note, frequencies, confidences)
+                continue
+            segments.append(current)
+        current = (start, end, midi_note, [f0_hz], [confidence])
+    if current is not None:
+        segments.append(current)
+    voiced_ratio = voiced_count / len(frames) if frames else 0.0
+    return segments, voiced_ratio
+
+
+def safe_confidence(value: object) -> float:
+    try:
+        result = float(value)
+    except Exception:
+        return 0.0
+    if not math.isfinite(result):
+        return 0.0
+    return min(max(result, 0.0), 1.0)
+
+
+def safe_frequency(value: object) -> float | None:
+    try:
+        result = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(result) or result <= 0:
+        return None
+    return result
+
+
 def analyze_rmvpe_melody(
     source: Path,
     vocal_pitch_json: Path,
@@ -436,6 +500,140 @@ def analyze_rmvpe_melody(
             octave_jump_count=octave_jump_count,
             confidence_threshold=min_confidence,
             voicing_threshold=pitch.voiced_confidence_threshold,
+        ),
+        warnings=warnings,
+    )
+    _write_result(json_output, midi_output, result=result)
+
+
+def analyze_fusion_melody(
+    source: Path,
+    fusion_json: Path,
+    json_output: Path,
+    midi_output: Path,
+    *,
+    job_id: str,
+    key: str,
+    root_index: int,
+    mode: str,
+    meter_hint: MeterHint,
+    min_note_duration_sec: float,
+    max_gap_merge_sec: float,
+    min_confidence: float,
+    max_notes: int,
+    beat_reference: Path | None = None,
+    requested_source: MelodySource = "vocals",
+    melody_source_used: MelodySourceUsed = "vocals",
+    source_audio_path: str = "analysis/stems/vocals.wav",
+    separation_backend: str | None = None,
+    separation_status: str = "missing",
+) -> None:
+    import numpy as np
+
+    librosa = _librosa()
+    fusion = json.loads(fusion_json.read_text(encoding="utf-8"))
+    beat_source = beat_reference or source
+    y, sample_rate = librosa.load(beat_source, sr=None, mono=True)
+    hop_length = 512
+    tempo_raw, beat_frames = librosa.beat.beat_track(y=y, sr=sample_rate, hop_length=hop_length)
+    tempo = float(np.asarray(tempo_raw).reshape(-1)[0]) if np.size(tempo_raw) else 0.0
+    bpm = round(tempo, 3) if math.isfinite(tempo) and tempo > 0 and len(beat_frames) >= 2 else None
+    beat_times = librosa.frames_to_time(beat_frames, sr=sample_rate, hop_length=hop_length)
+    meter_used, time_signature = _resolve_meter_metadata(
+        meter_hint, y, sample_rate, hop_length, beat_frames
+    )
+
+    segments, voiced_ratio = _fusion_segments(
+        fusion,
+        min_confidence=min_confidence,
+        max_gap_merge_sec=max_gap_merge_sec,
+    )
+    notes: list[MelodyNote] = []
+    truncated = False
+    for start_sec, end_sec, midi_note, frequencies, confidences in segments:
+        if end_sec - start_sec < min_note_duration_sec:
+            continue
+        note = _note_from_segment(
+            note_id=f"n{len(notes) + 1:04d}",
+            start_sec=start_sec,
+            end_sec=end_sec,
+            midi_note=midi_note,
+            frequencies=frequencies,
+            confidences=confidences,
+            beat_times=beat_times,
+            meter_used=meter_used,
+            root_index=root_index,
+            source="adaptive_fusion",
+        )
+        if note:
+            notes.append(note)
+        if len(notes) >= max_notes:
+            truncated = True
+            break
+
+    fusion_info = fusion.get("fusion") if isinstance(fusion.get("fusion"), dict) else {}
+    warnings = list(fusion_info.get("warnings") or [])
+    warnings.insert(0, "旋律由 adaptive fusion 產生，仍可能受人聲分離 artifact 或和聲影響。")
+    if bpm is None:
+        warnings.append("無法可靠估計 BPM；MIDI 使用 120 BPM。")
+    if truncated:
+        warnings.append(f"音符數已達上限 {max_notes}，後續候選音符未輸出。")
+    if not notes:
+        warnings.append("未找到符合可信度與最短音長條件的 fusion 旋律候選音符。")
+
+    average_confidence = (
+        round(sum(note.confidence for note in notes) / len(notes), 4) if notes else 0
+    )
+    average_note_duration = (
+        round(sum(note.duration_sec for note in notes) / len(notes), 6) if notes else 0
+    )
+    octave_jump_count = sum(
+        1
+        for previous, current in zip(notes, notes[1:])
+        if abs(current.midi_note - previous.midi_note) >= 12
+    )
+    result = MelodyAnalysisResult(
+        job_id=job_id,
+        algorithm_version="adaptive-melody-fusion-v1",
+        source_wav=source_audio_path,
+        requested_source=requested_source,
+        selected_source=melody_source_used,
+        melody_source_used=melody_source_used,
+        source_audio_path=source_audio_path,
+        pitch_backend="adaptive_fusion",
+        separation_backend=separation_backend,
+        separation_status=separation_status,
+        is_fallback=False,
+        key=key,
+        mode=mode,
+        bpm=bpm,
+        meter_hint=meter_hint,
+        meter_used=meter_used,
+        time_signature=time_signature,
+        notes=notes,
+        summary=MelodySummary(
+            note_count=len(notes),
+            voiced_ratio=round(voiced_ratio, 4),
+            average_confidence=average_confidence,
+            estimated_range=(
+                f"{_note_name(min(note.midi_note for note in notes))}-"
+                f"{_note_name(max(note.midi_note for note in notes))}"
+                if notes
+                else None
+            ),
+            start_sec=notes[0].start_sec if notes else None,
+            end_sec=notes[-1].end_sec if notes else None,
+        ),
+        debug_metadata=MelodyDebugMetadata(
+            pitch_backend="adaptive_fusion",
+            source=melody_source_used,
+            requested_source=requested_source,
+            voiced_ratio=round(voiced_ratio, 4),
+            note_count=len(notes),
+            avg_note_duration=average_note_duration,
+            octave_jump_count=octave_jump_count,
+            confidence_threshold=min_confidence,
+            voicing_threshold=float(fusion.get("confidence_threshold") or 0.0),
         ),
         warnings=warnings,
     )
