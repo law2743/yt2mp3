@@ -249,6 +249,8 @@ async function renderResult(job) {
   // Older backends do not include the additive features object. Once key
   // analysis is ready, expose Step 2 unless the API explicitly disables it.
   const stemsAvailable = job.features?.stem_separation === true;
+  const notationAvailable = job.notation_artifacts?.available === true;
+  const stepTwoAvailable = stemsAvailable || notationAvailable;
   const alternatives = analysis.candidates.slice(1)
     .map((item) => `${escapeHtml(item.key)} ${Math.round(item.score * 100)}%`).join("、") || "無";
   const buttons = [...job.shift_options]
@@ -276,16 +278,22 @@ async function renderResult(job) {
       下載 ${escapeHtml(option.label)}・${escapeHtml(option.target_key)}・${output.bitrate_kbps} kbps MP3
     </button>`;
   }).join("");
-  const stemsPanel = stemsAvailable ? `
+  const stepTwoPanel = stepTwoAvailable ? `
     <section class="stems-panel" data-phase-content="2" data-stems-panel aria-live="polite">
       <div class="panel-heading">
         <div>
-          <h3>人聲／伴奏分離</h3>
-          <p class="muted">使用本機 GPU 產生練唱素材；失敗時不影響原本的分析與轉調。</p>
+          <h3>${stemsAvailable ? "人聲／伴奏分離" : "依拍點整理的簡譜草稿"}</h3>
+          <p class="muted">${stemsAvailable
+            ? "使用本機 GPU 產生練唱素材；失敗時不影響原本的分析與轉調。"
+            : "已偵測到新版簡譜草稿；不影響原本的分析與轉調。"}</p>
         </div>
-        <button class="primary-action" type="button" data-start-step2>產生人聲／伴奏</button>
+        ${stemsAvailable
+          ? '<button class="primary-action" type="button" data-start-step2>產生人聲／伴奏</button>'
+          : ""}
       </div>
-      <div data-stems-content></div>
+      <div data-stems-content>
+        ${stemsAvailable ? "" : notationDraftPanel(job.notation_artifacts)}
+      </div>
     </section>` : "";
   resultBox.innerHTML = `
     <div class="song-head">
@@ -304,9 +312,9 @@ async function renderResult(job) {
     <div class="shift-grid" aria-label="轉調選項">${buttons}</div>
     <div class="downloads">${downloads}</div>
     </section>
-    ${stemsPanel}`;
+    ${stepTwoPanel}`;
   resultBox.classList.remove("hidden");
-  setPhaseTwoAvailable(stemsAvailable);
+  setPhaseTwoAvailable(stepTwoAvailable);
   selectPhaseStep(currentPhaseStep);
   resultBox.querySelectorAll(".shift-button").forEach((button) => {
     button.addEventListener("click", () => startTranspose(
@@ -320,6 +328,10 @@ async function renderResult(job) {
   });
   await loadThumbnail(source.thumbnail_url);
   if (stemsAvailable) await loadStemsState(job.job_id);
+  else if (notationAvailable) {
+    loadNotationDraft(job.notation_artifacts);
+    bindMelodyActions(job.job_id);
+  }
 }
 
 function melodyControls(meterHint = "auto", actionLabel = "產生主旋律簡譜草稿", force = false) {
@@ -347,12 +359,80 @@ function bindMelodyActions(jobId) {
   panel?.querySelectorAll("[data-melody-download]").forEach((button) => {
     button.addEventListener("click", () => downloadArtifact(button.dataset.melodyDownload, button));
   });
+  panel?.querySelectorAll("[data-notation-download]").forEach((button) => {
+    button.addEventListener("click", () => downloadArtifact(button.dataset.notationDownload, button));
+  });
   panel?.querySelectorAll("[data-stem-download]").forEach((button) => {
     button.addEventListener("click", () => downloadArtifact(
       `${button.dataset.stemDownload}?bitrate_kbps=${encodeURIComponent(selectedBitrate())}`,
       button,
     ));
   });
+}
+
+function notationDownloadButtons(artifacts) {
+  const downloads = [
+    ["下載簡譜草稿 TXT", artifacts?.jianpu_draft_txt_url],
+    ["下載 numbered_notation.json", artifacts?.numbered_notation_json_url],
+    ["下載 notes_draft.csv", artifacts?.notes_draft_csv_url],
+  ].filter(([, url]) => Boolean(url));
+  if (!downloads.length) return "";
+  return `<div class="notation-downloads">
+    ${downloads.map(([label, url]) => `<button type="button"
+      data-notation-download="${escapeHtml(url)}">${escapeHtml(label)}</button>`).join("")}
+  </div>`;
+}
+
+function notationDraftPanel(artifacts) {
+  if (!artifacts?.available) return "";
+  return `
+    <section class="notation-draft" data-notation-draft>
+      <div class="notation-draft-head">
+        <div>
+          <h4>新版簡譜草稿</h4>
+          <p class="muted">此為自動產生的簡譜草稿，可能需要人工校正。</p>
+        </div>
+        ${notationDownloadButtons(artifacts)}
+      </div>
+      <pre class="jianpu-draft-pre" tabindex="0" aria-label="新版簡譜草稿"
+        data-notation-draft-text>正在讀取新版簡譜草稿…</pre>
+    </section>`;
+}
+
+async function loadNotationDraft(artifacts) {
+  if (!artifacts?.available) return false;
+  const target = resultBox.querySelector("[data-notation-draft-text]");
+  if (!target) return false;
+  if (artifacts.jianpu_draft_txt_url) {
+    try {
+      const response = await authenticatedFetch(artifacts.jianpu_draft_txt_url);
+      const text = await response.text();
+      target.textContent = text || "新版簡譜草稿目前沒有文字內容。";
+      return Boolean(text);
+    } catch (error) {
+      console.debug("Failed to load jianpu draft txt", error);
+    }
+  }
+  if (artifacts.numbered_notation_json_url) {
+    try {
+      const payload = await request(artifacts.numbered_notation_json_url);
+      if (payload?.jianpu_text) {
+        target.textContent = payload.jianpu_text;
+        return true;
+      }
+    } catch (error) {
+      console.debug("Failed to load numbered notation json", error);
+    }
+  }
+  target.textContent = "新版簡譜草稿暫時無法讀取。";
+  return false;
+}
+
+function legacyMelodyNotationBlock(result, hidden = false) {
+  const lines = result.preview?.numbered_notation_lines || [];
+  const notation = lines.length ? lines.map(escapeHtml).join("\n") : "沒有足夠清楚的旋律候選音符。";
+  return `<pre class="numbered-notation${hidden ? " hidden" : ""}" tabindex="0"
+    aria-label="主旋律簡譜草稿" data-legacy-notation>${notation}</pre>`;
 }
 
 function setTransposeControlsDisabled(disabled) {
@@ -373,8 +453,7 @@ function renderMelodyState(jobId, melody) {
   } else if (melody.status === "melody_completed" && melody.result) {
     const result = melody.result;
     const summary = result.summary;
-    const lines = result.preview?.numbered_notation_lines || [];
-    const notation = lines.length ? lines.map(escapeHtml).join("\n") : "沒有足夠清楚的旋律候選音符。";
+    const hasNotationArtifacts = melody.notation_artifacts?.available === true;
     const stems = resultBox.querySelector("[data-stems-content]");
     const vocalsUrl = stems?.dataset.vocalsUrl || "";
     const accompanimentUrl = stems?.dataset.accompanimentUrl || "";
@@ -390,8 +469,19 @@ function renderMelodyState(jobId, melody) {
         <div><span>平均可信度</span><strong>${Math.round(summary.average_confidence * 100)}%</strong></div>
         <div><span>音域</span><strong>${escapeHtml(summary.estimated_range || "—")}</strong></div>
       </div>
-      <pre class="numbered-notation" tabindex="0" aria-label="主旋律簡譜草稿">${notation}</pre>`;
+      ${notationDraftPanel(melody.notation_artifacts)}
+      ${legacyMelodyNotationBlock(result, hasNotationArtifacts)}`;
     fitNotationBlocks();
+    if (hasNotationArtifacts) {
+      loadNotationDraft(melody.notation_artifacts).then((loaded) => {
+        const legacy = resultBox.querySelector("[data-legacy-notation]");
+        const draft = resultBox.querySelector("[data-notation-draft]");
+        if (!legacy) return;
+        legacy.classList.toggle("hidden", loaded);
+        if (draft) draft.classList.toggle("hidden", !loaded);
+        if (!loaded) fitNotationBlocks();
+      });
+    }
   } else if (melody.status === "melody_failed") {
     content.innerHTML = `<p class="error">${escapeHtml(melody.error?.message || "無法產生主旋律草稿。")}</p>
       <p class="muted">可使用右上方按鈕重新嘗試。</p>`;

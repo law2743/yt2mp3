@@ -74,6 +74,38 @@ class JobArtifacts:
         return safe_child(self.pitch_dir, "vocal_pitch.json")
 
     @property
+    def rhythm_dir(self) -> Path:
+        return safe_child(self.analysis_dir, "rhythm")
+
+    @property
+    def rhythm_beat_grid_json(self) -> Path:
+        return safe_child(self.rhythm_dir, "beat_grid.json")
+
+    @property
+    def rhythm_vocal_onsets_csv(self) -> Path:
+        return safe_child(self.rhythm_dir, "vocal_onsets.csv")
+
+    @property
+    def rhythm_notes_draft_json(self) -> Path:
+        return safe_child(self.rhythm_dir, "notes_draft.json")
+
+    @property
+    def rhythm_notes_draft_csv(self) -> Path:
+        return safe_child(self.rhythm_dir, "notes_draft.csv")
+
+    @property
+    def rhythm_numbered_notation_json(self) -> Path:
+        return safe_child(self.rhythm_dir, "numbered_notation.json")
+
+    @property
+    def rhythm_jianpu_draft_txt(self) -> Path:
+        return safe_child(self.rhythm_dir, "jianpu_draft.txt")
+
+    @property
+    def rhythm_diagnostics_json(self) -> Path:
+        return safe_child(self.rhythm_dir, "rhythm_diagnostics.json")
+
+    @property
     def melody_dir(self) -> Path:
         return safe_child(self.analysis_dir, "melody")
 

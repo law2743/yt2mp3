@@ -42,6 +42,16 @@ class OutputInfo(BaseModel):
     bitrate_kbps: Literal[128, 192, 256]
 
 
+class NotationArtifactsInfo(BaseModel):
+    available: bool = False
+    numbered_notation_json_url: str | None = None
+    jianpu_draft_txt_url: str | None = None
+    notes_draft_json_url: str | None = None
+    notes_draft_csv_url: str | None = None
+    rhythm_diagnostics_json_url: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class JobPublic(BaseModel):
     job_id: str
     status: JobStatus
@@ -58,3 +68,4 @@ class JobPublic(BaseModel):
     active_bitrate_kbps: Literal[128, 192, 256] | None = None
     error: ErrorDetail | None = None
     features: dict[str, bool] = Field(default_factory=dict)
+    notation_artifacts: NotationArtifactsInfo = Field(default_factory=NotationArtifactsInfo)

@@ -19,6 +19,7 @@ from app.models import (
     KeyAnalysisResult,
     MelodyAnalysisResult,
     MelodyStatus,
+    NotationArtifactsInfo,
     OutputInfo,
     SourceInfo,
     StemSeparationMetadata,
@@ -34,6 +35,7 @@ from app.services.pipelines import AnalyzePipeline, StemPipeline, TransposePipel
 from app.services.pipelines.melody_fusion_pipeline import MelodyFusionPipeline as MelodyPipeline
 from app.services.pipelines.melody import resolve_melody_source, sync_best_melody_alias
 from app.services.pipelines.stems import read_stem_metadata
+from app.services.rhythm.notation_generation import try_generate_notation_artifacts
 from app.services.task_queue import QueueItem, TaskQueue
 from app.services.youtube import CanonicalYouTubeUrl, YouTubeAdapter
 
@@ -254,6 +256,11 @@ class JobManager:
                     job.melody.meter_hint = job.melody.result.meter_hint
                     job.melody.source_requested = source
                     job.melody.error = None
+                    await self._generate_notation_artifacts_best_effort(
+                        job,
+                        meter_hint=job.melody.result.meter_hint,
+                        result=job.melody.result,
+                    )
                     return True
         if not source_path.exists():
             raise AppError(422, "MELODY_SOURCE_NOT_READY", "請先完成歌曲分析後再產生主旋律。")
@@ -312,6 +319,7 @@ class JobManager:
             "progress": job.melody.progress,
             "meter_hint": job.melody.meter_hint,
             "source_requested": job.melody.source_requested,
+            "notation_artifacts": self.notation_artifacts_public(job).model_dump(mode="json"),
         }
         if job.melody.error:
             payload["error"] = job.melody.error.model_dump(mode="json")
@@ -415,6 +423,31 @@ class JobManager:
                 "melody_analysis": self.settings.enable_melody_analysis,
                 "stem_separation": self.settings.stem_separation_enabled,
             },
+            notation_artifacts=self.notation_artifacts_public(job),
+        )
+
+    def notation_artifacts_public(self, job: Job) -> NotationArtifactsInfo:
+        artifacts = job.artifacts
+        base = f"/api/jobs/{job.job_id}/notation/download"
+        numbered_exists = artifacts.rhythm_numbered_notation_json.exists()
+        jianpu_exists = artifacts.rhythm_jianpu_draft_txt.exists()
+        notes_json_exists = artifacts.rhythm_notes_draft_json.exists()
+        notes_csv_exists = artifacts.rhythm_notes_draft_csv.exists()
+        diagnostics_exists = artifacts.rhythm_diagnostics_json.exists()
+        available = numbered_exists or jianpu_exists
+        warnings = [] if available else ["notation_artifacts_not_found"]
+        return NotationArtifactsInfo(
+            available=available,
+            numbered_notation_json_url=(
+                f"{base}/numbered-notation-json" if numbered_exists else None
+            ),
+            jianpu_draft_txt_url=f"{base}/jianpu-draft-txt" if jianpu_exists else None,
+            notes_draft_json_url=f"{base}/notes-draft-json" if notes_json_exists else None,
+            notes_draft_csv_url=f"{base}/notes-draft-csv" if notes_csv_exists else None,
+            rhythm_diagnostics_json_url=(
+                f"{base}/rhythm-diagnostics-json" if diagnostics_exists else None
+            ),
+            warnings=warnings,
         )
 
     async def delete(self, job: Job) -> None:
@@ -454,6 +487,11 @@ class JobManager:
                 self.running[job.job_id] = operation
                 result = await operation
                 if item.operation == "melody":
+                    await self._generate_notation_artifacts_best_effort(
+                        job,
+                        meter_hint=item.meter_hint or result.meter_hint or "auto",
+                        result=result,
+                    )
                     job.melody.result = result
                     job.melody.status = MelodyStatus.COMPLETED
                     job.melody.stage = "completed"
@@ -511,6 +549,34 @@ class JobManager:
             finally:
                 self.running.pop(item.job_id, None)
                 self.queue.task_done()
+
+    async def _generate_notation_artifacts_best_effort(
+        self,
+        job: Job,
+        *,
+        meter_hint: MeterHint,
+        result: MelodyAnalysisResult,
+    ) -> None:
+        try:
+            notation_succeeded = await asyncio.to_thread(
+                try_generate_notation_artifacts,
+                job.root,
+                meter_hint=meter_hint or result.meter_hint or "auto",
+                key=job.analysis.root_name if job.analysis else result.key,
+                mode=job.analysis.mode if job.analysis else result.mode,
+            )
+        except Exception:
+            logger.warning(
+                "notation artifact generation raised unexpectedly job_id=%s",
+                job.job_id,
+                exc_info=True,
+            )
+            return
+        if not notation_succeeded:
+            logger.warning(
+                "notation artifacts were not generated job_id=%s",
+                job.job_id,
+            )
 
     async def _stem_worker(self) -> None:
         while True:

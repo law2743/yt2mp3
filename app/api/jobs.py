@@ -196,6 +196,43 @@ async def download_melody_midi(
     )
 
 
+def _notation_artifact_path(job, artifact: str):
+    paths = {
+        "numbered-notation-json": job.artifacts.rhythm_numbered_notation_json,
+        "jianpu-draft-txt": job.artifacts.rhythm_jianpu_draft_txt,
+        "notes-draft-json": job.artifacts.rhythm_notes_draft_json,
+        "notes-draft-csv": job.artifacts.rhythm_notes_draft_csv,
+        "rhythm-diagnostics-json": job.artifacts.rhythm_diagnostics_json,
+    }
+    return paths.get(artifact)
+
+
+@router.get("/{job_id}/notation/download/{artifact}")
+async def download_notation_artifact(
+    job_id: str,
+    artifact: str,
+    request: Request,
+    owner_id: str = Depends(authenticated_owner),
+):
+    manager, owner_id = _context(request, owner_id)
+    job = manager.get(job_id, owner_id)
+    path = _notation_artifact_path(job, artifact)
+    if path is None or not path.exists():
+        raise AppError(404, "NOTATION_ARTIFACT_NOT_FOUND", "新版簡譜 artifact 不存在或尚未產生。")
+    media_types = {
+        "jianpu-draft-txt": "text/plain",
+        "notes-draft-csv": "text/csv",
+    }
+    media_type = media_types.get(artifact, "application/json")
+    filename = f"{artifact.replace('-', '_')}_{job.job_id}{path.suffix}"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
 @router.post("/{job_id}/transpose", status_code=202)
 async def transpose(
     job_id: str,

@@ -90,6 +90,13 @@ h2 { margin:0; line-height:1.25; }
 .melody-summary span,.melody-summary strong { display:block; }
 .melody-summary span { color:var(--muted); font-size:.78rem; }
 .numbered-notation { margin:16px 0; padding:18px; overflow:hidden; background:#0e1118; border:1px solid var(--line); border-radius:12px; color:var(--text); font:700 var(--notation-font-size,1.1rem)/2 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; }
+.notation-draft { margin-top:18px; padding:16px; background:#10141d; border:1px solid var(--line); border-radius:12px; }
+.notation-draft-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.notation-draft h4 { margin:0; font-size:1.05rem; }
+.notation-draft .muted { margin:.25rem 0 0; font-size:.88rem; }
+.notation-downloads { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.notation-downloads button { min-height:38px; padding:0 12px; background:#222a37; color:var(--text); border:1px solid var(--line); font-size:.86rem; }
+.jianpu-draft-pre { max-width:100%; max-height:360px; margin:14px 0 0; padding:16px; overflow:auto; background:#0e1118; border:1px solid var(--line); border-radius:10px; color:var(--text); font:700 1rem/1.9 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; }
 .melody-warning { margin:8px 0; color:var(--muted); font-size:.88rem; }
 .stem-downloads { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px; }
 .stem-melody-action { width:100%; margin-top:10px; }
@@ -108,6 +115,8 @@ h2 { margin:0; line-height:1.25; }
   .shift-button-label { display:inline; font-weight:400; }
   .shift-button strong { font-size:1rem; }
   .melody-controls,.stem-downloads { grid-template-columns:1fr; }
+  .notation-draft-head { display:grid; }
+  .notation-downloads { display:grid; grid-template-columns:1fr; justify-content:stretch; }
   .melody-summary { grid-template-columns:1fr 1fr; }
 }
 @media (prefers-reduced-motion:reduce) { .processing-spinner { animation-duration:1.8s; } }
