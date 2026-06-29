@@ -243,6 +243,103 @@ python scripts/run_melody_fusion_debug.py /mnt/d/vocals-1.wav \
 
 輸出包含 `inputs/*.csv`、`fusion.csv`、`fusion.json`、`comparison.csv` 與 `diagnostics.json`。
 
+### Melody V4.2 實驗結論
+
+這版新增兩個本機分析工具，用來把 adaptive fusion 產物轉成可比較的後處理線：
+
+- `scripts/postprocess_melody_debug.py`：從 `comparison.csv` 產生 `rmvpe_postprocessed`、`fusion_postprocessed` 與 `hybrid_postprocessed`
+- `scripts/export_melody_excel.py`：匯出 Excel V4.2 報表，比較 raw backend、postprocessed lines、gap fill 與 note 統計
+- `requirements-dev.txt` 加入 `openpyxl>=3.1`
+- `.gitignore` 忽略 `tests/output/` 報表輸出
+
+目前第一版主旋律 / 簡譜主線不建議直接使用 raw fusion，也不建議只使用 raw RMVPE。主線暫定為：
+
+```text
+hybrid_postprocessed = RMVPE 為主，Fusion 只在 RMVPE 缺值、且其他模型支持時補洞
+```
+
+V4.2 已驗證的實驗流程：
+
+```text
+RMVPE
+torchcrepe
+FCPE
+PESTO
+↓
+adaptive fusion
+↓
+rmvpe_postprocessed
+fusion_postprocessed
+hybrid_postprocessed
+↓
+Excel V4.2 分析
+```
+
+三條候選線的判斷：
+
+| 候選線 | 特色 | 結論 |
+| --- | --- | --- |
+| `rmvpe_postprocessed` | 音高最穩，但 raw notes 很碎 | 適合當主 anchor |
+| `fusion_postprocessed` | note 數較乾淨，但 voiced coverage 較低 | 不適合單獨當主線 |
+| `hybrid_postprocessed` | RMVPE 為主，只用 fusion 補有支持的空白 | 目前最適合當第一版主線 |
+
+關鍵數據：
+
+```text
+RMVPE 原始 notes: 769
+RMVPE 後處理 notes: 349
+
+Fusion 原始 notes: 445
+Fusion 後處理 notes: 339
+
+RMVPE primary frames: 19209
+Fusion gap fill frames: 184
+Fusion gap rejected frames: 16
+
+RMVPE postprocessed notes: 349
+Hybrid postprocessed notes: 352
+```
+
+Hybrid 只比 RMVPE 多補約 1.84 秒，note 數只增加 3 個，代表它沒有讓旋律線明顯變碎，同時保留 fusion 在 RMVPE 缺值時的少量補強價值。
+
+目前建議的第一版 pipeline：
+
+```text
+vocals.wav
+↓
+RMVPE / torchcrepe / FCPE / PESTO
+↓
+adaptive fusion
+↓
+postprocess
+↓
+hybrid_postprocessed
+↓
+後續 rhythm / beat / notation
+```
+
+下一階段先不要繼續調 fusion 權重，應轉向節奏與切分：
+
+```text
+accompaniment.wav → beat / tempo / 小節網格
+vocals.wav        → vocal onset / syllable onset
+hybrid_postprocessed → 主旋律音高線
+```
+
+簡譜前主線暫定為：
+
+```text
+hybrid_postprocessed
++
+beat grid
++
+vocal onset
+↓
+hybrid_rhythm_quantized
+↓
+numbered_notation.json
+```
+
 更多細節：
 
 - [docs/gpu.md](docs/gpu.md)：GPU venv、環境隔離、smoke tests、疑難排查
