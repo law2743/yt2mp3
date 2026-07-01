@@ -50,6 +50,20 @@ const stageLabels = {
   completed: "MP3 已完成。",
 };
 
+const stepTwoStages = {
+  stems: ["人聲分離", "正在分離人聲與伴奏，供後續旋律分析使用。"],
+  rmvpe: ["RMVPE", "正在使用 RMVPE 擷取人聲音高。"],
+  torchcrepe: ["torchcrepe", "正在使用 torchcrepe 交叉比對音高。"],
+  fcpe: ["FCPE", "正在使用 FCPE 補充音高候選。"],
+  pesto: ["PESTO", "正在使用 PESTO 補充音高候選。"],
+  fusion: ["多模型融合", "正在整合四個模型的音高結果。"],
+  postprocess: ["旋律後處理", "正在清理跳音、短音與不穩定片段。"],
+  rhythm: ["節奏分析", "正在分析 BPM、拍點與小節位置。"],
+  notes: ["音符草稿", "正在把旋律整理成可量化的音符。"],
+  notation: ["新版簡譜", "正在產生新版簡譜草稿。"],
+  completed: ["新版簡譜", "新版簡譜草稿已完成。"],
+};
+
 function clearSession() {
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
@@ -93,13 +107,33 @@ function elapsedText(createdAt) {
   return `已處理 ${minutes} 分 ${seconds} 秒`;
 }
 
-function showProcessingStatus(message, createdAt = null) {
+function showProcessingStatus(message, createdAt = null, detail = null) {
   const elapsed = elapsedText(createdAt);
   statusBox.className = "status processing-status";
   statusBox.innerHTML = `
     <span class="processing-spinner" aria-hidden="true"></span>
     <span><strong>${escapeHtml(message)}</strong>
-    <small>${escapeHtml(elapsed || "後台正在持續處理，請保留此頁面")}</small></span>`;
+    <small>${escapeHtml(detail || elapsed || "後台正在持續處理，請保留此頁面")}</small></span>`;
+}
+
+function stepTwoStageFromArtifacts(melody = null) {
+  const artifacts = melody?.artifact_status || {};
+  if (!artifacts.vocals_wav) return "stems";
+  if (!artifacts.rmvpe_csv) return "rmvpe";
+  if (!artifacts.torchcrepe_csv) return "torchcrepe";
+  if (!artifacts.fcpe_csv) return "fcpe";
+  if (!artifacts.pesto_csv) return "pesto";
+  if (!artifacts.fusion_csv || !artifacts.fusion_json) return "fusion";
+  if (!artifacts.melody_json) return "postprocess";
+  if (!artifacts.beat_grid_json || !artifacts.vocal_onsets_csv) return "rhythm";
+  if (!artifacts.notes_draft_json) return "notes";
+  if (!artifacts.numbered_notation_json || !artifacts.jianpu_draft_txt) return "notation";
+  return "completed";
+}
+
+function showStepTwoStatus(melody = null) {
+  const [title, detail] = stepTwoStages[stepTwoStageFromArtifacts(melody)] || stepTwoStages.rmvpe;
+  showProcessingStatus(title, null, detail);
 }
 
 async function authenticatedFetch(path, options = {}) {
@@ -373,8 +407,6 @@ function bindMelodyActions(jobId) {
 function notationDownloadButtons(artifacts) {
   const downloads = [
     ["下載簡譜草稿 TXT", artifacts?.jianpu_draft_txt_url],
-    ["下載 numbered_notation.json", artifacts?.numbered_notation_json_url],
-    ["下載 notes_draft.csv", artifacts?.notes_draft_csv_url],
   ].filter(([, url]) => Boolean(url));
   if (!downloads.length) return "";
   return `<div class="notation-downloads">
@@ -592,9 +624,7 @@ async function waitForStems(jobId) {
     const stems = await request(`/api/jobs/${encodeURIComponent(jobId)}/stems`);
     renderStemsState(jobId, stems);
     if (["stems_queued", "stems_running"].includes(stems.status)) {
-      showProcessingStatus(stems.status === "stems_queued"
-        ? "GPU 工作已排入佇列…"
-        : "正在分離人聲與伴奏…");
+      showStepTwoStatus();
       await delay(2000);
       continue;
     }
@@ -608,13 +638,7 @@ async function waitForMelody(jobId) {
     const melody = await request(`/api/jobs/${encodeURIComponent(jobId)}/melody`);
     renderMelodyState(jobId, melody);
     if (["melody_queued", "melody_preparing", "melody_extracting_pitch", "melody_exporting"].includes(melody.status)) {
-      const labels = {
-        melody_queued: "旋律工作已排入佇列…",
-        melody_preparing: "正在準備人聲旋律分析…",
-        melody_extracting_pitch: "正在執行 RMVPE 音高分析…",
-        melody_exporting: "正在輸出簡譜與 MIDI…",
-      };
-      showProcessingStatus(labels[melody.status] || "正在產生旋律資料…");
+      showStepTwoStatus(melody);
       await delay(1500);
       continue;
     }
@@ -628,7 +652,7 @@ async function startStep2(jobId) {
   clearMelodyPoll();
   const button = resultBox.querySelector("[data-start-step2]");
   if (button) button.disabled = true;
-  showProcessingStatus("正在建立練唱分析工作…");
+  showStepTwoStatus();
   try {
     const currentStems = await request(`/api/jobs/${encodeURIComponent(jobId)}/stems`);
     if (["stems_queued", "stems_running"].includes(currentStems.status)) {
@@ -641,7 +665,7 @@ async function startStep2(jobId) {
     } else {
       renderStemsState(jobId, currentStems);
     }
-    showProcessingStatus("正在建立 RMVPE 旋律工作…");
+    showStepTwoStatus({ artifact_status: { vocals_wav: true } });
     await request(`/api/jobs/${encodeURIComponent(jobId)}/melody`, {
       method: "POST", body: JSON.stringify({ force: true, meter_hint: "auto", source: "vocals" }),
     });

@@ -13,7 +13,14 @@ RhythmPitchSource = PitchBackend | Literal[
     "manual",
     "unknown",
 ]
-BoundarySource = Literal["beat_grid", "vocal_onset", "pitch_change", "hybrid", "manual", "unknown"]
+BoundarySource = Literal[
+    "beat_grid",
+    "vocal_onset",
+    "pitch_change",
+    "hybrid",
+    "manual",
+    "unknown",
+]
 
 
 class BeatEvent(BaseModel):
@@ -28,6 +35,8 @@ class BeatEvent(BaseModel):
 class MeterHypothesis(BaseModel):
     meter: MeterUsed
     confidence: float = Field(ge=0, le=1)
+    score: float = 0
+    reason: str | None = None
     bpm: int | None = Field(default=None, gt=0)
     beats_per_bar: int | None = Field(default=None, ge=1)
     source: str | None = None
@@ -86,6 +95,13 @@ class NoteDraft(BaseModel):
     onset_confidence: float | None = Field(default=None, ge=0, le=1)
     quantization_confidence: float | None = Field(default=None, ge=0, le=1)
     boundary_source: BoundarySource = "unknown"
+    boundary_reasons: list[str] = Field(default_factory=list)
+    boundary_confidence: float | None = Field(default=None, ge=0, le=1)
+    start_boundary_source: str | None = None
+    end_boundary_source: str | None = None
+    segment_frame_count: int | None = Field(default=None, ge=0)
+    median_midi: float | None = Field(default=None, ge=0, le=127)
+    pitch_stability_cents: float | None = Field(default=None, ge=0)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -109,7 +125,7 @@ class NoteDraftResult(BaseModel):
     pitch_source: RhythmPitchSource = "hybrid_postprocessed"
     beat_grid_source: str = "analysis/rhythm/beat_grid.json"
     onset_source: str | None = "analysis/rhythm/vocal_onsets.csv"
-    bpm: int | None = Field(default=None, gt=0)
+    bpm: float | None = Field(default=None, gt=0)
     meter_used: MeterUsed = "none"
     source_pitch_path: str = "analysis/melody/fusion/fusion.json"
     beat_grid_path: str = "analysis/rhythm/beat_grid.json"
@@ -150,7 +166,7 @@ class NumberedNotationResult(BaseModel):
     key: str | None = None
     mode: str | None = None
     meter_used: MeterUsed | None = None
-    bpm: int | None = Field(default=None, gt=0)
+    bpm: float | None = Field(default=None, gt=0)
     bars: list[NumberedNotationBar] = Field(default_factory=list)
     notes: list[NumberedNotationNote] = Field(default_factory=list)
     jianpu_text: str | None = None

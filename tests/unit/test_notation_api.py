@@ -103,10 +103,48 @@ def test_notation_artifacts_absent_keeps_job_and_melody_responses_compatible(tmp
         "midi_url": f"/api/jobs/{job.job_id}/melody/download/midi",
     }
     assert melody["notation_artifacts"]["available"] is False
+    assert melody["artifact_status"]["vocals_wav"] is False
+    assert melody["artifact_status"]["jianpu_draft_txt"] is False
     assert not job.artifacts.rhythm_numbered_notation_json.exists()
     assert not job.artifacts.rhythm_jianpu_draft_txt.exists()
     assert job.artifacts.melody_json.read_text(encoding="utf-8") == "keep-json"
     assert job.artifacts.melody_midi.read_bytes() == b"keep-midi"
+
+
+def test_melody_response_exposes_artifact_status_for_step_two_progress(tmp_path):
+    manager = _manager(tmp_path)
+    job = _insert_ready_job(manager)
+    _complete_melody(job)
+    _write_artifact(job.artifacts.vocals_wav, "vocals")
+    _write_artifact(job.artifacts.melody_fusion_input_csv("rmvpe"), "time_sec,midi\n")
+    _write_artifact(job.artifacts.melody_fusion_input_csv("torchcrepe"), "time_sec,midi\n")
+    _write_artifact(job.artifacts.melody_fusion_input_csv("fcpe"), "time_sec,midi\n")
+    _write_artifact(job.artifacts.melody_fusion_input_csv("pesto"), "time_sec,midi\n")
+    _write_artifact(job.artifacts.melody_fusion_csv, "time_sec,midi\n")
+    _write_artifact(job.artifacts.melody_fusion_json, "{}")
+    _write_artifact(job.artifacts.rhythm_beat_grid_json, "{}")
+    _write_artifact(job.artifacts.rhythm_vocal_onsets_csv, "onset_id,time_sec\n")
+    _write_artifact(job.artifacts.rhythm_notes_draft_json, "{}")
+    _write_artifact(job.artifacts.rhythm_numbered_notation_json, "{}")
+    _write_artifact(job.artifacts.rhythm_jianpu_draft_txt, "Key: C\n")
+
+    status = manager.melody_public(job)["artifact_status"]
+
+    assert status == {
+        "vocals_wav": True,
+        "rmvpe_csv": True,
+        "torchcrepe_csv": True,
+        "fcpe_csv": True,
+        "pesto_csv": True,
+        "fusion_csv": True,
+        "fusion_json": True,
+        "melody_json": True,
+        "beat_grid_json": True,
+        "vocal_onsets_csv": True,
+        "notes_draft_json": True,
+        "numbered_notation_json": True,
+        "jianpu_draft_txt": True,
+    }
 
 
 def test_numbered_notation_json_makes_notation_available(tmp_path):

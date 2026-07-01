@@ -135,6 +135,22 @@ class JobArtifacts:
         return safe_child(self.melody_fusion_dir, "diagnostics.json")
 
     @property
+    def melody_comparison_csv(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "comparison.csv")
+
+    @property
+    def melody_postprocessed_csv(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "postprocessed.csv")
+
+    @property
+    def melody_postprocessed_json(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "postprocessed.json")
+
+    @property
+    def melody_postprocess_diagnostics_json(self) -> Path:
+        return safe_child(self.melody_fusion_dir, "postprocess_diagnostics.json")
+
+    @property
     def vocals_mono_16000_wav(self) -> Path:
         return safe_child(self.melody_fusion_dir, "vocals_mono_16000.wav")
 

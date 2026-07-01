@@ -26,3 +26,12 @@ def test_rhythm_artifact_paths_are_under_analysis_rhythm(tmp_path):
     assert artifacts.rhythm_diagnostics_json == (
         tmp_path / "job-id" / "analysis" / "rhythm" / "rhythm_diagnostics.json"
     )
+    assert artifacts.melody_postprocessed_csv == (
+        tmp_path / "job-id" / "analysis" / "melody" / "fusion" / "postprocessed.csv"
+    )
+    assert artifacts.melody_postprocessed_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "fusion" / "postprocessed.json"
+    )
+    assert artifacts.melody_postprocess_diagnostics_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "fusion" / "postprocess_diagnostics.json"
+    )

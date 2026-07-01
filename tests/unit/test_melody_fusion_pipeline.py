@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from datetime import UTC, datetime, timedelta
 import json
 import uuid
@@ -156,6 +157,72 @@ async def test_fusion_pipeline_writes_compatible_melody_outputs(tmp_path, monkey
     assert job.artifacts.melody_midi.exists()
     assert job.artifacts.melody_fusion_json.exists()
     assert job.artifacts.melody_fusion_csv.exists()
+    assert job.artifacts.melody_postprocessed_csv.exists()
+    assert job.artifacts.melody_postprocessed_json.exists()
+    assert job.artifacts.melody_postprocess_diagnostics_json.exists()
+    with job.artifacts.melody_postprocessed_csv.open(newline="", encoding="utf-8-sig") as handle:
+        columns = list(csv.DictReader(handle).fieldnames or [])
+    assert "hybrid_postprocessed_midi" in columns
     diagnostics = json.loads(job.artifacts.melody_fusion_diagnostics_json.read_text())
     assert diagnostics["fusion_status"] == "succeeded"
+    assert diagnostics["postprocess_status"] == "succeeded"
     assert diagnostics["succeeded_backends"] == ["rmvpe", "fcpe"]
+
+
+@pytest.mark.asyncio
+async def test_fusion_pipeline_keeps_melody_outputs_when_postprocess_fails(tmp_path, monkeypatch):
+    job = _job(tmp_path)
+    pipeline = MelodyFusionPipeline(Settings(app_env="test", work_root=tmp_path))
+
+    async def fake_prepare(_job, _source):
+        return _job.artifacts.vocals_mono_16000_wav
+
+    async def fake_extract(_job):
+        rmvpe = _job.artifacts.melody_fusion_input_csv("rmvpe")
+        fcpe = _job.artifacts.melody_fusion_input_csv("fcpe")
+        _write_csv(rmvpe, "rmvpe")
+        _write_csv(fcpe, "fcpe")
+        return {
+            "rmvpe": _status("rmvpe", rmvpe),
+            "torchcrepe": {"backend": "torchcrepe", "status": "failed", "failed_reason": "fixture"},
+            "fcpe": _status("fcpe", fcpe),
+            "pesto": {"backend": "pesto", "status": "failed", "failed_reason": "fixture"},
+        }
+
+    def fake_analyze(_source, _fusion_json, json_output, midi_output, **kwargs):
+        result = MelodyAnalysisResult(
+            job_id=kwargs["job_id"],
+            algorithm_version="adaptive-melody-fusion-v1",
+            key="C Major",
+            mode="major",
+            meter_hint="none",
+            pitch_backend="adaptive_fusion",
+            is_fallback=False,
+            notes=[],
+            summary=MelodySummary(note_count=0, voiced_ratio=1.0, average_confidence=0.0),
+        )
+        json_output.write_text(result.model_dump_json(), encoding="utf-8")
+        midi_output.write_bytes(b"MThd-fixture")
+
+    monkeypatch.setattr(pipeline, "_ensure_vocals_mono_16000", fake_prepare)
+    monkeypatch.setattr(pipeline, "_extract_backend_csvs", fake_extract)
+    monkeypatch.setattr(
+        "app.services.pipelines.melody_fusion_pipeline.analyze_fusion_melody",
+        fake_analyze,
+    )
+    monkeypatch.setattr(
+        "app.services.pipelines.melody_fusion_pipeline.postprocess_melody_fusion_artifacts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("postprocess boom")),
+    )
+
+    result = await pipeline.run(job, "none", "vocals")
+
+    assert result.pitch_backend == "adaptive_fusion"
+    assert job.artifacts.melody_json.exists()
+    assert job.artifacts.melody_midi.exists()
+    assert job.artifacts.melody_json.read_text(encoding="utf-8")
+    assert job.artifacts.melody_midi.read_bytes() == b"MThd-fixture"
+    diagnostics = json.loads(job.artifacts.melody_fusion_diagnostics_json.read_text())
+    assert diagnostics["fusion_status"] == "succeeded"
+    assert diagnostics["postprocess_status"] == "failed"
+    assert "postprocess_failed" in diagnostics["warnings"]

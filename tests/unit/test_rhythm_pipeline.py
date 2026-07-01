@@ -37,6 +37,46 @@ def _write_pitch_csv(path: Path, midis: list[float] | None = None) -> None:
             )
 
 
+def _write_postprocessed_csv(path: Path, midis: list[float] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    values = midis or [72.0] * 12
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "time_sec",
+                "hybrid_postprocessed_f0_hz",
+                "hybrid_postprocessed_midi",
+                "fusion_postprocessed_f0_hz",
+                "fusion_postprocessed_midi",
+                "rmvpe_postprocessed_f0_hz",
+                "rmvpe_postprocessed_midi",
+                "hybrid_postprocess_action",
+                "hybrid_support_count",
+                "hybrid_supporters",
+                "voiced",
+            ],
+        )
+        writer.writeheader()
+        for index, midi in enumerate(values):
+            hz = 440.0 * (2.0 ** ((midi - 69.0) / 12.0))
+            writer.writerow(
+                {
+                    "time_sec": round(index * 0.02, 6),
+                    "hybrid_postprocessed_f0_hz": hz,
+                    "hybrid_postprocessed_midi": midi,
+                    "fusion_postprocessed_f0_hz": hz,
+                    "fusion_postprocessed_midi": midi,
+                    "rmvpe_postprocessed_f0_hz": hz,
+                    "rmvpe_postprocessed_midi": midi,
+                    "hybrid_postprocess_action": "rmvpe_primary",
+                    "hybrid_support_count": "",
+                    "hybrid_supporters": "",
+                    "voiced": 1,
+                }
+            )
+
+
 def _fake_beat_grid(source: Path, *, fallback_source: Path | None = None, **_kwargs) -> BeatGridResult:
     selected = fallback_source if not source.exists() and fallback_source and fallback_source.exists() else source
     warnings = ["source_missing", "used_fallback_source"] if selected != source else []
@@ -98,6 +138,41 @@ def test_full_rhythm_pipeline_writes_all_artifacts(tmp_path, monkeypatch):
     assert diagnostics["note_stats"]["onset_count"] == 1
     assert diagnostics["note_stats"]["used_accompaniment"] is True
     assert diagnostics["note_stats"]["used_vocals"] is True
+
+
+def test_pipeline_prefers_postprocessed_hybrid_over_raw_fusion(tmp_path, monkeypatch):
+    artifacts = _artifacts(tmp_path)
+    artifacts.stems_dir.mkdir()
+    artifacts.accompaniment_wav.write_bytes(b"accompaniment")
+    artifacts.vocals_wav.write_bytes(b"vocals")
+    _write_postprocessed_csv(artifacts.melody_postprocessed_csv, [72.0] * 12)
+    _write_pitch_csv(artifacts.melody_fusion_csv, [69.0] * 12)
+    _patch_services(monkeypatch)
+
+    result = run_rhythm_pipeline(artifacts.root, meter_hint="4/4")
+
+    assert result.pitch_source == "hybrid_postprocessed"
+    assert result.notes[0].midi_note == 72
+    diagnostics = json.loads(artifacts.rhythm_diagnostics_json.read_text(encoding="utf-8"))
+    assert diagnostics["pitch_source"] == "hybrid_postprocessed"
+    assert diagnostics["note_stats"]["postprocessed_artifact_used"] is True
+    assert diagnostics["note_stats"]["fallback_to_raw_fusion"] is False
+
+
+def test_pipeline_falls_back_to_raw_fusion_when_postprocessed_missing(tmp_path, monkeypatch):
+    artifacts = _artifacts(tmp_path)
+    artifacts.stems_dir.mkdir()
+    artifacts.accompaniment_wav.write_bytes(b"accompaniment")
+    artifacts.vocals_wav.write_bytes(b"vocals")
+    _write_pitch_csv(artifacts.melody_fusion_csv, [69.0] * 12)
+    _patch_services(monkeypatch)
+
+    result = run_rhythm_pipeline(artifacts.root, meter_hint="4/4")
+
+    assert result.notes
+    diagnostics = json.loads(artifacts.rhythm_diagnostics_json.read_text(encoding="utf-8"))
+    assert diagnostics["note_stats"]["postprocessed_artifact_used"] is False
+    assert diagnostics["note_stats"]["fallback_to_raw_fusion"] is True
 
 
 def test_missing_accompaniment_falls_back_to_mono_audio(tmp_path, monkeypatch):

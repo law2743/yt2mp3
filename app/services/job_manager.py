@@ -319,6 +319,7 @@ class JobManager:
             "progress": job.melody.progress,
             "meter_hint": job.melody.meter_hint,
             "source_requested": job.melody.source_requested,
+            "artifact_status": self.melody_artifact_status(job),
             "notation_artifacts": self.notation_artifacts_public(job).model_dump(mode="json"),
         }
         if job.melody.error:
@@ -357,6 +358,25 @@ class JobManager:
                 },
             }
         return payload
+
+    def melody_artifact_status(self, job: Job) -> dict[str, bool]:
+        artifacts = job.artifacts
+        return {
+            "vocals_wav": artifacts.vocals_wav.exists(),
+            "rmvpe_csv": artifacts.melody_fusion_input_csv("rmvpe").exists(),
+            "torchcrepe_csv": artifacts.melody_fusion_input_csv("torchcrepe").exists(),
+            "fcpe_csv": artifacts.melody_fusion_input_csv("fcpe").exists(),
+            "pesto_csv": artifacts.melody_fusion_input_csv("pesto").exists(),
+            "fusion_csv": artifacts.melody_fusion_csv.exists(),
+            "fusion_json": artifacts.melody_fusion_json.exists(),
+            "melody_json": artifacts.melody_json.exists()
+            or artifacts.melody_variant_json("vocals").exists(),
+            "beat_grid_json": artifacts.rhythm_beat_grid_json.exists(),
+            "vocal_onsets_csv": artifacts.rhythm_vocal_onsets_csv.exists(),
+            "notes_draft_json": artifacts.rhythm_notes_draft_json.exists(),
+            "numbered_notation_json": artifacts.rhythm_numbered_notation_json.exists(),
+            "jianpu_draft_txt": artifacts.rhythm_jianpu_draft_txt.exists(),
+        }
 
     def stems_public(self, job: Job) -> dict:
         payload: dict = {

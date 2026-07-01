@@ -10,7 +10,12 @@ from app.models.melody import MelodyAnalysisResult, MelodySource, MelodyStatus, 
 from app.services.audio import probe_audio
 from app.services.gpu_subprocess_env import build_gpu_subprocess_env
 from app.services.melody import analyze_fusion_melody
-from app.services.melody_fusion import FusionConfig, fuse_pitch_csvs
+from app.services.melody_fusion import (
+    FusionConfig,
+    PostprocessArtifacts,
+    fuse_pitch_csvs,
+    postprocess_melody_fusion_artifacts,
+)
 from app.services.melody_fusion.io import (
     pitch_csv_rows_from_rmvpe_json,
     save_diagnostics,
@@ -129,6 +134,7 @@ class MelodyFusionPipeline:
                 "warnings": fusion_payload.get("fusion", {}).get("warnings", []),
             }
         )
+        self._try_postprocess_fusion(job, diagnostics)
         save_diagnostics(job.artifacts.melody_fusion_diagnostics_json, diagnostics)
 
         job.melody.status = MelodyStatus.EXPORTING
@@ -171,6 +177,35 @@ class MelodyFusionPipeline:
             save_diagnostics(job.artifacts.melody_fusion_diagnostics_json, diagnostics)
             raise AppError(500, "MELODY_EXPORT_FAILED", "主旋律檔案輸出失敗。", True) from exc
         return result
+
+    def _try_postprocess_fusion(self, job: Job, diagnostics: dict[str, Any]) -> None:
+        try:
+            postprocess_melody_fusion_artifacts(
+                PostprocessArtifacts(
+                    comparison_csv=job.artifacts.melody_comparison_csv,
+                    fusion_csv=job.artifacts.melody_fusion_csv,
+                    diagnostics_json=job.artifacts.melody_fusion_diagnostics_json,
+                    output_csv=job.artifacts.melody_postprocessed_csv,
+                    output_json=job.artifacts.melody_postprocessed_json,
+                    output_diagnostics_json=job.artifacts.melody_postprocess_diagnostics_json,
+                    backend_csvs={
+                        backend: job.artifacts.melody_fusion_input_csv(backend)
+                        for backend in BACKENDS
+                    },
+                )
+            )
+            diagnostics["postprocess_status"] = "succeeded"
+            diagnostics["postprocessed_artifacts"] = {
+                "csv": str(job.artifacts.melody_postprocessed_csv),
+                "json": str(job.artifacts.melody_postprocessed_json),
+                "diagnostics_json": str(job.artifacts.melody_postprocess_diagnostics_json),
+            }
+        except Exception as exc:
+            diagnostics["postprocess_status"] = "failed"
+            diagnostics["postprocess_warning"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+            warnings = diagnostics.setdefault("warnings", [])
+            if isinstance(warnings, list):
+                warnings.append("postprocess_failed")
 
     async def _ensure_vocals_mono_16000(self, job: Job, source: Path) -> Path:
         output = job.artifacts.vocals_mono_16000_wav

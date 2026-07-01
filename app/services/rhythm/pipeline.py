@@ -17,6 +17,8 @@ from app.services.rhythm.vocal_onset import analyze_vocal_onsets, write_vocal_on
 
 ALGORITHM_VERSION = "rhythm-pipeline-v1"
 PITCH_TIMELINE_CANDIDATES = (
+    ("melody_postprocessed_csv", "postprocessed.csv"),
+    ("melody/fusion/postprocessed.csv", "postprocessed.csv"),
     ("melody_fusion_csv", "fusion.csv"),
     ("melody_fusion_json", "fusion.json"),
     ("melody/fusion/hybrid_postprocessed.csv", "hybrid_postprocessed.csv"),
@@ -182,13 +184,14 @@ def _ensure_note_draft(
 
 def _resolve_pitch_timeline(artifacts: JobArtifacts) -> Path | None:
     direct_candidates = [
+        artifacts.melody_postprocessed_csv,
         artifacts.melody_fusion_csv,
         artifacts.melody_fusion_json,
     ]
     relative_candidates = [
         artifacts.analysis_dir / path
         for path, _label in PITCH_TIMELINE_CANDIDATES
-        if path not in {"melody_fusion_csv", "melody_fusion_json"}
+        if path not in {"melody_postprocessed_csv", "melody_fusion_csv", "melody_fusion_json"}
     ]
     return next((path for path in [*direct_candidates, *relative_candidates] if path.exists()), None)
 
@@ -214,6 +217,20 @@ def _build_diagnostics(
         or "vocal_onset:used_fallback_source" in warnings
     )
     all_warnings = _unique([*warnings, *(result.diagnostics.warnings if result.diagnostics else [])])
+    postprocess_diagnostics = _read_json_dict(artifacts.melody_postprocess_diagnostics_json)
+    postprocessed_artifact_used = pitch_timeline == artifacts.melody_postprocessed_csv
+    fallback_to_raw_fusion = (
+        not postprocessed_artifact_used
+        and pitch_timeline in {artifacts.melody_fusion_csv, artifacts.melody_fusion_json}
+    )
+    hybrid_stats = (
+        postprocess_diagnostics.get("targets", {})
+        .get("hybrid", {})
+        .get("stats", {})
+        if postprocess_diagnostics
+        else {}
+    )
+    note_draft_stats = result.diagnostics.note_stats if result.diagnostics else {}
     return RhythmDiagnostics(
         algorithm_version=ALGORITHM_VERSION,
         beat_backend=beat_grid.backend,
@@ -221,6 +238,7 @@ def _build_diagnostics(
         pitch_source=result.pitch_source if pitch_timeline_exists else None,
         meter_hypotheses=beat_grid.meter_hypotheses,
         note_stats={
+            **note_draft_stats,
             "beat_count": len(beat_grid.beats) or len(beat_grid.beat_times_sec),
             "onset_count": len(vocal_onsets),
             "note_count": len(result.notes),
@@ -231,6 +249,24 @@ def _build_diagnostics(
             "used_fallback_audio": used_fallback_audio,
             "beat_grid_reused": beat_reused,
             "vocal_onsets_reused": onset_reused,
+            "postprocessed_artifact_used": postprocessed_artifact_used,
+            "postprocessed_artifact_path": (
+                _relative_artifact_path(artifacts, artifacts.melody_postprocessed_csv)
+                if artifacts.melody_postprocessed_csv.exists()
+                else ""
+            ),
+            "fallback_to_raw_fusion": fallback_to_raw_fusion,
+            "postprocess_warnings": postprocess_diagnostics.get("warnings", [])
+            if postprocess_diagnostics
+            else [],
+            "hybrid_note_count": hybrid_stats.get("cleaned_note_count"),
+            "hybrid_voiced_frame_count": hybrid_stats.get("postprocessed_voiced_frames"),
+            "hybrid_support_summary": {
+                "hybrid_min_support": hybrid_stats.get("hybrid_min_support"),
+                "hybrid_support_cents": hybrid_stats.get("hybrid_support_cents"),
+                "fusion_gap_fill_frames": hybrid_stats.get("fusion_gap_fill_frames"),
+                "fusion_gap_rejected_frames": hybrid_stats.get("fusion_gap_rejected_frames"),
+            },
         },
         warnings=all_warnings,
         beat_grid_path=_relative_artifact_path(artifacts, artifacts.rhythm_beat_grid_json),
@@ -346,6 +382,16 @@ def _optional_bool(value: Any, *, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "y"}
     return bool(value)
+
+
+def _read_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _unique(values: list[str]) -> list[str]:

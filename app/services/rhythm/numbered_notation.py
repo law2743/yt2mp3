@@ -75,8 +75,6 @@ def build_numbered_notation(
     mode: str | None = None,
 ) -> NumberedNotationResult:
     payload = json.loads(notes_draft_path.read_text(encoding="utf-8"))
-    if isinstance(payload, dict):
-        payload["bpm"] = _as_bpm(payload.get("bpm"))
     draft = NoteDraftResult.model_validate(payload)
     warnings = list(draft.warnings)
 
@@ -112,7 +110,11 @@ def build_numbered_notation(
     if any(note.bar_index is None for note in draft.notes):
         warnings.append("missing_bar_index")
 
-    bars = _group_bars(notes)
+    bars = (
+        []
+        if draft.meter_used == "none" or any(note.bar_index is None for note in draft.notes)
+        else _group_bars(notes)
+    )
     result = NumberedNotationResult(
         key=result_key,
         mode=normalized_mode,
@@ -173,7 +175,7 @@ def _build_note(
         duration_sec=note.duration_sec,
         midi_note=note.midi_note,
         note_name=note.note_name,
-        bar_index=0 if missing_bar_index else note.bar_index,
+        bar_index=None if missing_bar_index else note.bar_index,
         raw_beat_start=note.raw_beat_start,
         raw_beat_duration=note.raw_beat_duration,
         quantized_beat_start=note.quantized_beat_start,
@@ -218,15 +220,21 @@ def _build_jianpu_text(result: NumberedNotationResult) -> str:
         f"Key: {result.key or ''}",
         f"Mode: {result.mode or ''}",
         f"Meter: {result.meter_used or ''}",
-        f"BPM: {'' if result.bpm is None else _format_number(result.bpm)}",
+        f"BPM: {_display_bpm(result.bpm)}",
         "",
     ]
-    bar_texts = []
-    for bar in result.bars:
-        bar_notes = " ".join(_jianpu_note_text(note) for note in bar.notes)
-        bar_texts.append(bar_notes.strip())
-    lines.append("| " + " | ".join(bar_texts) + " |" if bar_texts else "| |")
+    if result.bars:
+        bar_texts = [_bar_text(bar) for bar in result.bars]
+        for index in range(0, len(bar_texts), 4):
+            lines.append("| " + " | ".join(bar_texts[index : index + 4]) + " |")
+    else:
+        note_text = " ".join(_jianpu_note_text(note) for note in result.notes).strip()
+        lines.append(f"| {note_text} |" if note_text else "| |")
     return "\n".join(lines)
+
+
+def _bar_text(bar: NumberedNotationBar) -> str:
+    return " ".join(_jianpu_note_text(note) for note in bar.notes).strip()
 
 
 def _jianpu_note_text(note: NumberedNotationNote) -> str:
@@ -271,20 +279,10 @@ def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _as_bpm(value: Any) -> int | None:
+def _display_bpm(value: float | None) -> str:
     if value is None:
-        return None
-    try:
-        bpm = float(value)
-    except (TypeError, ValueError):
-        return None
-    if bpm <= 0:
-        return None
-    return max(1, int(round(bpm)))
-
-
-def _format_number(value: float) -> str:
-    return str(int(value)) if float(value).is_integer() else str(value)
+        return ""
+    return str(round(value))
 
 
 def _near(value: float, expected: float, tolerance: float = 0.08) -> bool:

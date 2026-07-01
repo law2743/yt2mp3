@@ -18,6 +18,25 @@ def _write_click_track(path: Path, *, bpm: float = 120.0, beats: int = 12, sampl
     sf.write(path, audio, sample_rate)
 
 
+def _write_accented_click_track(
+    path: Path,
+    *,
+    accent_every: int,
+    bpm: float = 120.0,
+    beats: int = 24,
+    sample_rate: int = 22050,
+) -> None:
+    duration = (60.0 / bpm) * (beats + 2)
+    audio = np.zeros(int(duration * sample_rate), dtype=np.float32)
+    click_length = int(0.02 * sample_rate)
+    click = np.hanning(click_length).astype(np.float32)
+    for beat in range(beats):
+        start = int((0.5 + beat * 60.0 / bpm) * sample_rate)
+        amplitude = 1.0 if beat % accent_every == 0 else 0.35
+        audio[start : start + click_length] += amplitude * click
+    sf.write(path, audio, sample_rate)
+
+
 def test_click_track_produces_beat_times(tmp_path):
     source = tmp_path / "clicks.wav"
     _write_click_track(source)
@@ -29,6 +48,64 @@ def test_click_track_produces_beat_times(tmp_path):
     assert len(result.beat_times_sec) >= 6
     assert len(result.beats) == len(result.beat_times_sec)
     assert result.source_audio_path == str(source)
+
+
+def test_auto_meter_detects_4_4_click_track(tmp_path):
+    source = tmp_path / "clicks-4-4.wav"
+    _write_accented_click_track(source, accent_every=4)
+
+    result = analyze_beat_grid(source, meter_hint="auto")
+
+    assert result.meter_used == "4/4"
+    assert result.beats_per_bar == 4
+    assert result.bar_starts_sec
+    assert result.beats[0].bar_index == 0
+    assert result.beats[0].beat_in_bar == 1
+    assert result.meter_hypotheses
+    assert result.meter_hypotheses[0].meter == "4/4"
+    assert result.meter_hypotheses[0].score > 0
+    assert result.meter_hypotheses[0].reason
+    assert "auto_meter_low_confidence_fallback_4_4" not in result.warnings
+
+
+def test_auto_meter_detects_3_4_click_track(tmp_path):
+    source = tmp_path / "clicks-3-4.wav"
+    _write_accented_click_track(source, accent_every=3)
+
+    result = analyze_beat_grid(source, meter_hint="auto")
+
+    assert result.meter_used == "3/4"
+    assert result.beats_per_bar == 3
+    assert result.bar_starts_sec
+    assert result.meter_hypotheses[0].meter == "3/4"
+
+
+def test_auto_meter_detects_6_8_pulse_track(tmp_path):
+    source = tmp_path / "clicks-6-8.wav"
+    _write_accented_click_track(source, accent_every=2)
+
+    result = analyze_beat_grid(source, meter_hint="auto")
+
+    assert result.meter_used == "6/8"
+    assert result.beats_per_bar == 2
+    assert result.pulse_unit == "dotted_quarter"
+    assert result.subdivision_unit == "eighth"
+    assert result.subdivisions_per_beat == 3
+    assert result.bar_starts_sec
+    assert result.meter_hypotheses[0].meter == "6/8"
+
+
+def test_auto_meter_low_confidence_falls_back_to_4_4(tmp_path):
+    source = tmp_path / "clicks-flat.wav"
+    _write_click_track(source, beats=24)
+
+    result = analyze_beat_grid(source, meter_hint="auto")
+
+    assert result.meter_used == "4/4"
+    assert result.beats_per_bar == 4
+    assert result.bar_starts_sec
+    assert result.meter_hypotheses
+    assert "auto_meter_low_confidence_fallback_4_4" in result.warnings
 
 
 def test_detected_bpm_is_rounded_to_integer():
@@ -116,4 +193,4 @@ def test_missing_source_and_fallback_returns_empty_result(tmp_path):
     assert result.beats == []
     assert "source_missing" in result.warnings
     assert "fallback_missing" in result.warnings
-    assert "auto_meter_not_implemented" in result.warnings
+    assert "auto_meter_low_confidence_fallback_4_4" in result.warnings

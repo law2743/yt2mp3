@@ -30,12 +30,12 @@ def _note(
     )
 
 
-def _write_notes_draft(path, notes, *, key="C", mode="major") -> None:
+def _write_notes_draft(path, notes, *, key="C", mode="major", bpm=82.0, meter="4/4") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     result = NoteDraftResult(
         algorithm_version="test",
-        bpm=82.0,
-        meter_used="4/4",
+        bpm=bpm,
+        meter_used=meter,
         notes=notes,
     )
     payload = result.model_dump()
@@ -106,13 +106,15 @@ def test_bpm_header_uses_integer_value(tmp_path):
     path = tmp_path / "analysis" / "rhythm" / "notes_draft.json"
     _write_notes_draft(path, [_note(60)])
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["bpm"] = 109.956
+    payload["bpm"] = 126.04801829268293
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     result = build_numbered_notation(path)
 
-    assert result.bpm == 110
-    assert "BPM: 110\n" in result.jianpu_text
+    assert result.bpm == 126.04801829268293
+    assert "BPM: 126\n" in result.jianpu_text
+    serialized = json.loads(result.model_dump_json())
+    assert serialized["bpm"] == 126.04801829268293
 
 
 def test_notes_are_grouped_by_bar_index(tmp_path):
@@ -129,6 +131,42 @@ def test_notes_are_grouped_by_bar_index(tmp_path):
 
     assert [bar.bar_index for bar in result.bars] == [0, 1]
     assert "| 1 | 2 |" in result.jianpu_text
+
+
+def test_jianpu_text_wraps_every_four_bars(tmp_path):
+    path = tmp_path / "analysis" / "rhythm" / "notes_draft.json"
+    _write_notes_draft(
+        path,
+        [_note(60 + (index % 7), note_id=f"note-{index}", bar_index=index) for index in range(8)],
+        key="D",
+    )
+
+    result = build_numbered_notation(path)
+
+    lines = result.jianpu_text.splitlines()
+    assert lines[:5] == ["Key: D", "Mode: major", "Meter: 4/4", "BPM: 82", ""]
+    music_lines = lines[5:]
+    assert len(music_lines) == 2
+    assert all(line.count("|") == 5 for line in music_lines)
+
+
+def test_meter_none_or_missing_bar_index_keeps_single_music_line(tmp_path):
+    path = tmp_path / "analysis" / "rhythm" / "notes_draft.json"
+    _write_notes_draft(
+        path,
+        [
+            _note(60, note_id="note-1", bar_index=None),
+            _note(62, note_id="note-2", bar_index=None),
+        ],
+        meter="none",
+    )
+
+    result = build_numbered_notation(path)
+
+    assert result.bars == []
+    assert "missing_bar_index" in result.warnings
+    music_lines = result.jianpu_text.splitlines()[5:]
+    assert music_lines == ["| 1 2 |"]
 
 
 def test_missing_key_mode_uses_c_major_with_warning(tmp_path):
