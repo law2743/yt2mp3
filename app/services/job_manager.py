@@ -32,8 +32,8 @@ from app.services.key_analyzer import LibrosaKeyAnalyzer
 from app.services.key_names import shift_options
 from app.services.melody import build_notation_lines
 from app.services.pipelines import AnalyzePipeline, StemPipeline, TransposePipeline
-from app.services.pipelines.melody_fusion_pipeline import MelodyFusionPipeline as MelodyPipeline
-from app.services.pipelines.melody import resolve_melody_source, sync_best_melody_alias
+from app.services.pipelines.melody_fusion_pipeline import MelodyFusionPipeline
+from app.services.pipelines.melody_helpers import resolve_melody_source, sync_best_melody_alias
 from app.services.pipelines.stems import read_stem_metadata
 from app.services.rhythm.notation_generation import try_generate_notation_artifacts
 from app.services.task_queue import QueueItem, TaskQueue
@@ -500,7 +500,7 @@ class JobManager:
                         pipeline.run(job, item.semitones, item.bitrate_kbps)
                     )
                 else:
-                    pipeline = MelodyPipeline(self.settings)
+                    pipeline = MelodyFusionPipeline(self.settings)
                     operation = asyncio.create_task(
                         pipeline.run(job, item.meter_hint, item.melody_source)
                     )

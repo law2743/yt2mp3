@@ -1,0 +1,2 @@
+# Archived research and analysis tools.
+openpyxl>=3.1

@@ -12,7 +12,6 @@ from app.models.job import (
 from app.models.music import KeyAnalysisResult, KeyCandidate, ShiftOption
 from app.models.melody import MelodyAnalysisResult, MelodyStatus
 from app.models.stem import StemSeparationMetadata, StemTaskStatus
-from app.models.vocal_pitch import VocalPitchResult
 
 __all__ = [
     "AnalyzeRequest",
@@ -32,5 +31,4 @@ __all__ = [
     "StemSeparationMetadata",
     "StemTaskStatus",
     "TransposeRequest",
-    "VocalPitchResult",
 ]

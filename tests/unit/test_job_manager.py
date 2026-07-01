@@ -51,14 +51,14 @@ async def test_melody_failure_does_not_change_main_job_status(tmp_path, monkeypa
     from app.errors import AppError
     import app.services.job_manager as job_manager_module
 
-    class FailingMelodyPipeline:
+    class FailingMelodyFusionPipeline:
         def __init__(self, _settings):
             pass
 
         async def run(self, _job, _meter_hint, _source="auto"):
             raise AppError(500, "MELODY_ANALYSIS_FAILED", "fixture failure", True)
 
-    monkeypatch.setattr(job_manager_module, "MelodyPipeline", FailingMelodyPipeline)
+    monkeypatch.setattr(job_manager_module, "MelodyFusionPipeline", FailingMelodyFusionPipeline)
     manager = JobManager(Settings(app_env="test", work_root=tmp_path))
     try:
         url = canonicalize_youtube_url("https://youtu.be/dQw4w9WgXcQ")
@@ -102,7 +102,7 @@ async def test_melody_success_calls_notation_generation_without_blocking_status(
 
     calls = []
 
-    class SuccessfulMelodyPipeline:
+    class SuccessfulMelodyFusionPipeline:
         def __init__(self, _settings):
             pass
 
@@ -141,7 +141,7 @@ async def test_melody_success_calls_notation_generation_without_blocking_status(
     async def inline_to_thread(func, /, *args, **kwargs):
         return func(*args, **kwargs)
 
-    monkeypatch.setattr(job_manager_module, "MelodyPipeline", SuccessfulMelodyPipeline)
+    monkeypatch.setattr(job_manager_module, "MelodyFusionPipeline", SuccessfulMelodyFusionPipeline)
     monkeypatch.setattr(job_manager_module, "try_generate_notation_artifacts", fake_notation)
     monkeypatch.setattr(job_manager_module.asyncio, "to_thread", inline_to_thread)
 

@@ -54,7 +54,55 @@ class FakeKeyAnalyzer:
 
 
 @pytest.mark.asyncio
-async def test_mocked_end_to_end_pipeline(tmp_path):
+async def test_mocked_end_to_end_pipeline(tmp_path, monkeypatch):
+    import app.services.job_manager as job_manager_module
+
+    class FakeAnalyzePipeline:
+        def __init__(self, _settings, _youtube, _analyzer):
+            pass
+
+        async def run(self, job):
+            job.source_info = SourceInfo(
+                video_id=job.youtube_url.video_id,
+                title="Authorized fixture",
+                uploader="Tests",
+                duration_seconds=8,
+            )
+            source = job.artifacts.source_dir / "source.wav"
+            source.write_bytes(b"source-fixture")
+            job.source_path = source
+            job.artifacts.analysis_audio.write_bytes(b"analysis-fixture")
+            job.analysis = KeyAnalysisResult(
+                root_index=0,
+                root_name="C",
+                mode="major",
+                display_name="C Major",
+                confidence=0.8,
+                candidates=[KeyCandidate(key="C Major", score=1.0)],
+                algorithm_version="integration-fixture-v1",
+            )
+            job.status = JobStatus.READY
+            job.stage = "awaiting_selection"
+            job.progress = 100
+
+    class FakeTransposePipeline:
+        def __init__(self, _settings):
+            pass
+
+        async def run(self, job, semitones, bitrate_kbps):
+            output = job.root / "output" / f"shift_{semitones}_{bitrate_kbps}k.mp3"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"mp3-fixture")
+            job.outputs[(semitones, bitrate_kbps)] = output
+            job.status = JobStatus.COMPLETED
+            job.stage = "completed"
+            job.progress = 100
+            job.active_shift = None
+            job.active_bitrate_kbps = None
+
+    monkeypatch.setattr(job_manager_module, "AnalyzePipeline", FakeAnalyzePipeline)
+    monkeypatch.setattr(job_manager_module, "TransposePipeline", FakeTransposePipeline)
+
     settings = Settings(
         app_env="test",
         work_root=tmp_path,

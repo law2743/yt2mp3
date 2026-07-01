@@ -9,9 +9,19 @@ need to live at the repository root.
   and GPU troubleshooting notes.
 * `melody_fusion.md`: adaptive melody fusion CSV schema, artifacts, CLI, and
   local WAV debug workflow.
-* `yt2mp3-spec.md`: historical MVP product and technical specification. The root
-  `README.md` is the source of truth for the current deployment model and active
-  roadmap.
+* `archive/yt2mp3-spec-v1.1.md`: historical MVP product and technical
+  specification. The root `README.md` is the source of truth for the current
+  deployment model and active runtime summary.
+* `archive/melody-v4.2.md`: historical Melody V4.2 experiment notes, including
+  `rmvpe_postprocessed`, `fusion_postprocessed`, `hybrid_postprocessed`, Excel
+  V4.2 analysis, comparison tables, and key metrics.
+* `archive/rhythm-phase-2.2.3.md`: historical Rhythm Pipeline / Phase 2.2.3
+  segmentation notes, boundary decisions, pitch plateau handling, debug export
+  workflow, and limitations.
+* `archive/scripts/`: historical research, debug, and report scripts. These are
+  retained for reference and are not part of the active runtime script set.
+
+`docs/archive/` 內文件與腳本為歷史研發紀錄，不代表目前 active runtime。
 
 Files that stay at the repository root are there because tools or conventions
 expect them there: `README.md`, `LICENSE`, `pyproject.toml`,
@@ -70,6 +80,13 @@ Before merging documentation-only changes, run at least:
 
 ```bash
 ruff check app tests
+pytest -q
+```
+
+If the change touches archived scripts, run:
+
+```bash
+ruff check app tests scripts docs/archive/scripts
 pytest -q
 ```
 

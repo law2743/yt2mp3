@@ -22,7 +22,7 @@ from app.services.melody_fusion.io import (
     summarize_pitch_csv,
     write_pitch_csv,
 )
-from app.services.pipelines.melody import resolve_melody_source, sync_best_melody_alias
+from app.services.pipelines.melody_helpers import resolve_melody_source, sync_best_melody_alias
 from app.services.pipelines.stems import read_stem_metadata
 from app.services.process import ProcessFailed, ProcessTimedOut, run_process
 

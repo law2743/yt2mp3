@@ -9,7 +9,7 @@ from app.errors import AppError
 from app.models import JobStatus, KeyAnalysisResult, KeyCandidate
 from app.services.artifacts import JobArtifacts
 from app.services.job_manager import Job
-from app.services.pipelines.melody import resolve_melody_source
+from app.services.pipelines.melody_helpers import resolve_melody_source
 from app.services.youtube import canonicalize_youtube_url
 
 

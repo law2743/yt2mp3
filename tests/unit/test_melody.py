@@ -1,7 +1,4 @@
-import json
-
 import numpy as np
-import soundfile as sf
 
 from app.models.melody import MelodyAnalysisResult, MelodyNote, MelodySummary
 from app.services.melody import (
@@ -9,7 +6,6 @@ from app.services.melody import (
     _note_name,
     _numbered_notation,
     _write_midi,
-    analyze_rmvpe_melody,
     build_notation_lines,
 )
 
@@ -103,69 +99,3 @@ def test_melody_schema_and_empty_midi_are_serializable(tmp_path):
     midi = mido.MidiFile(path)
     assert midi.type == 0
     assert len(midi.tracks) == 1
-
-
-def test_rmvpe_pitch_points_generate_melody_json_and_midi(tmp_path):
-    source = tmp_path / "vocals.wav"
-    sample_rate = 16000
-    sf.write(source, np.zeros(sample_rate, dtype=np.float32), sample_rate)
-    pitch_json = tmp_path / "vocal_pitch.json"
-    points = [
-        {
-            "time": round(index * 0.01, 2),
-            "frequency_hz": 440.0,
-            "midi": 69.0,
-            "confidence": 0.9,
-            "voiced": True,
-        }
-        for index in range(30)
-    ]
-    pitch_json.write_text(
-        json.dumps(
-            {
-                "schema_version": "vocal_pitch.v1",
-                "backend": "rmvpe_onnx",
-                "fallback_used": False,
-                "input_source": "vocals",
-                "sample_rate": sample_rate,
-                "duration_seconds": 1.0,
-                "frame_hz": 100,
-                "hop_seconds": 0.01,
-                "voiced_confidence_threshold": 0.03,
-                "points": points,
-                "metadata": {
-                    "model": "rmvpe-onnx",
-                    "device": "cuda",
-                    "confidence_source": "rmvpe_onnx",
-                    "created_at": "2026-06-25T00:00:00Z",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    output = tmp_path / "melody.json"
-    midi = tmp_path / "melody.mid"
-
-    analyze_rmvpe_melody(
-        source,
-        pitch_json,
-        output,
-        midi,
-        job_id="fixture",
-        key="C Major",
-        root_index=0,
-        mode="major",
-        meter_hint="none",
-        min_note_duration_sec=0.12,
-        max_gap_merge_sec=0.08,
-        min_confidence=0.45,
-        max_notes=2000,
-        beat_reference=source,
-    )
-
-    result = MelodyAnalysisResult.model_validate_json(output.read_text(encoding="utf-8"))
-    assert result.pitch_backend == "rmvpe_onnx"
-    assert result.is_fallback is False
-    assert result.notes[0].source == "rmvpe_onnx"
-    assert result.notes[0].midi_note == 69
-    assert midi.read_bytes().startswith(b"MThd")

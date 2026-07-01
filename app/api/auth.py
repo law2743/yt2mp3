@@ -66,7 +66,7 @@ def verify_access_token(token: str, settings: Settings) -> str:
         raise AppError(401, "INVALID_TOKEN", "登入憑證無效，請重新登入。") from exc
 
 
-def authenticated_owner(
+async def authenticated_owner(
     request: Request,
     settings: Settings = Depends(get_settings),
 ) -> str:

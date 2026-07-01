@@ -1,17 +1,20 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 import uuid
 
-from fastapi.testclient import TestClient
+import pytest
 
 from app.api.auth import authenticated_owner, issue_access_token
-from app.config import Settings, get_settings
+from app.api.jobs import download_melody_json, download_melody_midi
+from app.config import Settings
 from app.main import app
 from app.models import JobStatus, KeyAnalysisResult, KeyCandidate
 from app.models.melody import MelodyAnalysisResult, MelodyStatus, MelodySummary
 from app.services.artifacts import JobArtifacts
 from app.services.job_manager import Job
 from app.services.youtube import canonicalize_youtube_url
+from tests.unit.api_client import api_client
 
 
 def _settings(tmp_path: Path, **updates) -> Settings:
@@ -66,31 +69,46 @@ def _complete_melody(job: Job) -> None:
     job.melody.result = result
 
 
-def test_melody_status_and_downloads_use_owned_job(tmp_path):
+def _request(manager):
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(job_manager=manager)))
+
+
+@pytest.mark.asyncio
+async def test_melody_status_and_downloads_use_owned_job(tmp_path):
     settings = _settings(tmp_path)
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[authenticated_owner] = (
-        lambda: "00000000-0000-0000-0000-000000000000"
-    )
+
+    async def owner_override():
+        return "00000000-0000-0000-0000-000000000000"
+
+    app.dependency_overrides[authenticated_owner] = owner_override
     try:
-        with TestClient(app) as client:
+        async with api_client(settings) as client:
             job = _insert_ready_job(app.state.job_manager, "00000000-0000-0000-0000-000000000000")
-            response = client.get(f"/api/jobs/{job.job_id}/melody")
+            response = await client.get(f"/api/jobs/{job.job_id}/melody")
             assert response.status_code == 200
             assert response.json()["status"] == "not_started"
 
             _complete_melody(job)
-            json_download = client.get(f"/api/jobs/{job.job_id}/melody/download/json")
-            midi_download = client.get(f"/api/jobs/{job.job_id}/melody/download/midi")
-            assert json_download.status_code == 200
-            assert json_download.headers["content-type"].startswith("application/json")
-            assert midi_download.status_code == 200
-            assert midi_download.headers["content-type"].startswith("audio/midi")
+            json_download = await download_melody_json(
+                job.job_id,
+                _request(app.state.job_manager),
+                owner_id="00000000-0000-0000-0000-000000000000",
+            )
+            midi_download = await download_melody_midi(
+                job.job_id,
+                _request(app.state.job_manager),
+                owner_id="00000000-0000-0000-0000-000000000000",
+            )
+            assert json_download.path == job.artifacts.melody_json
+            assert json_download.media_type == "application/json"
+            assert midi_download.path == job.artifacts.melody_midi
+            assert midi_download.media_type == "audio/midi"
     finally:
         app.dependency_overrides.clear()
 
 
-def test_melody_auth_owner_and_meter_validation(tmp_path):
+@pytest.mark.asyncio
+async def test_melody_auth_owner_and_meter_validation(tmp_path):
     settings = _settings(
         tmp_path,
         app_env="production",
@@ -102,33 +120,33 @@ def test_melody_auth_owner_and_meter_validation(tmp_path):
     other_id = str(uuid.uuid4())
     owner_token = issue_access_token(owner_id, settings)
     other_token = issue_access_token(other_id, settings)
-    app.dependency_overrides[get_settings] = lambda: settings
-    try:
-        with TestClient(app) as client:
-            job = _insert_ready_job(app.state.job_manager, owner_id)
-            path = f"/api/jobs/{job.job_id}/melody"
-            assert client.get(path).status_code == 401
-            assert client.get(path, headers={"Authorization": f"Bearer {other_token}"}).status_code == 404
-            invalid = client.post(
-                path,
-                headers={"Authorization": f"Bearer {owner_token}"},
-                json={"meter_hint": "7/8"},
-            )
-            assert invalid.status_code == 400
-    finally:
-        app.dependency_overrides.clear()
+    async with api_client(settings) as client:
+        job = _insert_ready_job(app.state.job_manager, owner_id)
+        path = f"/api/jobs/{job.job_id}/melody"
+        assert (await client.get(path)).status_code == 401
+        assert (
+            await client.get(path, headers={"Authorization": f"Bearer {other_token}"})
+        ).status_code == 404
+        invalid = await client.post(
+            path,
+            headers={"Authorization": f"Bearer {owner_token}"},
+            json={"meter_hint": "7/8"},
+        )
+        assert invalid.status_code == 400
 
 
-def test_disabled_melody_api_is_hidden(tmp_path):
+@pytest.mark.asyncio
+async def test_disabled_melody_api_is_hidden(tmp_path):
     settings = _settings(tmp_path, enable_melody_analysis=False)
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[authenticated_owner] = (
-        lambda: "00000000-0000-0000-0000-000000000000"
-    )
+
+    async def owner_override():
+        return "00000000-0000-0000-0000-000000000000"
+
+    app.dependency_overrides[authenticated_owner] = owner_override
     try:
-        with TestClient(app) as client:
+        async with api_client(settings) as client:
             job = _insert_ready_job(app.state.job_manager, "00000000-0000-0000-0000-000000000000")
-            response = client.get(f"/api/jobs/{job.job_id}/melody")
+            response = await client.get(f"/api/jobs/{job.job_id}/melody")
             assert response.status_code == 404
             assert response.json()["error"]["code"] == "FEATURE_DISABLED"
     finally:

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import shutil
-from importlib.util import find_spec
+import inspect
 from contextlib import asynccontextmanager
+from importlib.util import find_spec
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app import __version__
 from app.api.auth import router as auth_router
@@ -18,12 +20,48 @@ from app.errors import AppError, app_error_handler
 from app.services.job_manager import JobManager
 
 
+class RequestBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                too_large = int(content_length) > self.max_bytes
+            except ValueError:
+                too_large = True
+            if too_large:
+                response = JSONResponse(
+                    status_code=413,
+                    content={
+                        "error": {
+                            "code": "REQUEST_TOO_LARGE",
+                            "message": "請求內容過大。",
+                            "retryable": False,
+                        }
+                    },
+                )
+                await response(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
     # Honor FastAPI's settings override in tests while keeping the cached
     # environment-backed settings in normal application startup.
     settings_provider = app_instance.dependency_overrides.get(get_settings, get_settings)
     settings = settings_provider()
+    if inspect.isawaitable(settings):
+        settings = await settings
     settings.work_root.mkdir(parents=True, exist_ok=True)
     manager = JobManager(settings)
     app_instance.state.job_manager = manager
@@ -56,31 +94,10 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
     max_age=600,
 )
+app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16 * 1024)
 app.add_exception_handler(AppError, app_error_handler)
 app.include_router(auth_router)
 app.include_router(jobs_router)
-
-
-@app.middleware("http")
-async def limit_request_body(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            too_large = int(content_length) > 16 * 1024
-        except ValueError:
-            too_large = True
-        if too_large:
-            return JSONResponse(
-                status_code=413,
-                content={
-                    "error": {
-                        "code": "REQUEST_TOO_LARGE",
-                        "message": "請求內容過大。",
-                        "retryable": False,
-                    }
-                },
-            )
-    return await call_next(request)
 
 
 @app.exception_handler(RequestValidationError)
