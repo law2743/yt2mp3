@@ -286,19 +286,22 @@ async function renderResult(job) {
   const notationAvailable = job.notation_artifacts?.available === true;
   const stepTwoAvailable = stemsAvailable || notationAvailable;
   const alternatives = analysis.candidates.slice(1)
-    .map((item) => `${escapeHtml(item.key)} ${Math.round(item.score * 100)}%`).join("、") || "無";
+    .map((item) => `${escapeHtml(displayKeyName(item.key))} ${Math.round(item.score * 100)}%`).join("、") || "無";
   const buttons = [...job.shift_options]
     .sort((left, right) => left.semitones - right.semitones)
-    .map((option) => `
-      <div class="shift-option">
-        <span class="shift-label">${escapeHtml(option.label)}</span>
-        <button class="shift-button${option.semitones === 0 ? " is-original" : ""}"
-          type="button" data-shift="${option.semitones}"
-          aria-label="${escapeHtml(`${option.label}，${option.target_key}`)}">
-          <span class="shift-button-label">${escapeHtml(option.label)}</span>
-          <strong>${escapeHtml(option.target_key)}</strong>
-        </button>
-      </div>`).join("");
+    .map((option) => {
+      const targetKey = displayKeyName(option.target_key);
+      return `
+        <div class="shift-option">
+          <span class="shift-label">${escapeHtml(option.label)}</span>
+          <button class="shift-button${option.semitones === 0 ? " is-original" : ""}"
+            type="button" data-shift="${option.semitones}"
+            aria-label="${escapeHtml(`${option.label}，${targetKey}`)}">
+            <span class="shift-button-label">${escapeHtml(option.label)}</span>
+            <strong>${escapeHtml(targetKey)}</strong>
+          </button>
+        </div>`;
+    }).join("");
   const bitrateOptions = [128, 192, 256].map((bitrate) => `
     <label class="bitrate-option">
       <input type="radio" name="bitrate" value="${bitrate}"${bitrate === 192 ? " checked" : ""}>
@@ -309,7 +312,7 @@ async function renderResult(job) {
     const option = job.shift_options.find((item) => item.semitones === output.semitones);
     return `<button class="download" type="button" data-download="${output.semitones}"
       data-bitrate="${output.bitrate_kbps}">
-      下載 ${escapeHtml(option.label)}・${escapeHtml(option.target_key)}・${output.bitrate_kbps} kbps MP3
+      下載 ${escapeHtml(option.label)}・${escapeHtml(displayKeyName(option.target_key))}・${output.bitrate_kbps} kbps MP3
     </button>`;
   }).join("");
   const stepTwoPanel = stepTwoAvailable ? `
@@ -336,7 +339,7 @@ async function renderResult(job) {
       <p class="muted">${escapeHtml(source.uploader || "未知頻道")}・${formatDuration(source.duration_seconds)}</p></div>
     </div>
     <section data-phase-content="1">
-    <div class="key-summary"><div><span>原調</span><strong>${escapeHtml(analysis.key || analysis.display_name)}</strong></div>
+    <div class="key-summary"><div><span>原調</span><strong>${escapeHtml(displayKeyName(analysis.key || analysis.display_name))}</strong></div>
       <div><span>可信度</span><strong>${Math.round(analysis.confidence * 100)}%</strong></div></div>
     <p>${confidenceText(analysis.confidence)}</p><p class="muted">其他可能：${alternatives}</p>
     <fieldset class="bitrate-picker">
@@ -366,6 +369,13 @@ async function renderResult(job) {
     loadNotationDraft(job.notation_artifacts);
     bindMelodyActions(job.job_id);
   }
+}
+
+function displayKeyName(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^([A-G](?:#|b)?)(?:\s+|-)?(Major|Minor)$/i);
+  if (!match) return text;
+  return match[1] + (match[2].toLowerCase() === "minor" ? "m" : "");
 }
 
 function melodyControls(meterHint = "auto", actionLabel = "產生主旋律簡譜草稿", force = false) {

@@ -77,3 +77,14 @@ def test_frontend_notation_styles_keep_long_text_scrollable_on_mobile():
     assert "overflow-x:auto" in styles
     assert "white-space:pre-wrap" in styles
     assert ".notation-downloads { display:grid; grid-template-columns:1fr;" in styles
+
+
+def test_frontend_shift_buttons_use_compact_single_row_key_display():
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    styles = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
+
+    assert "function displayKeyName" in app_js
+    assert 'match[2].toLowerCase() === "minor" ? "m" : ""' in app_js
+    assert "displayKeyName(option.target_key)" in app_js
+    assert "grid-auto-flow:column" in styles
+    assert "grid-auto-columns:minmax(64px,1fr)" in styles

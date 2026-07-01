@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     @field_validator("shift_range")
     @classmethod
     def validate_shift_range(cls, value: int) -> int:
-        if value not in (2, 3):
-            raise ValueError("SHIFT_RANGE must be 2 or 3")
+        if value not in (2, 3, 4):
+            raise ValueError("SHIFT_RANGE must be 2, 3, or 4")
         return value
 
     @field_validator("ytdlp_cookies_file", mode="before")

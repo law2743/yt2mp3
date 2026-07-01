@@ -63,7 +63,7 @@ h2 { margin:0; line-height:1.25; }
 .bitrate-option span,.bitrate-option strong,.bitrate-option small { display:block; }
 .bitrate-option strong { line-height:1.25; }
 .bitrate-option small { margin-top:2px; color:var(--muted); font-size:.78rem; white-space:nowrap; }
-.shift-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; margin-top:24px; }
+.shift-grid { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(64px,1fr); gap:8px; margin-top:24px; overflow-x:auto; padding-bottom:4px; scrollbar-width:thin; }
 .shift-option { display:grid; grid-template-rows:40px 56px; gap:7px; min-width:0; }
 .shift-label { display:flex; align-items:flex-end; justify-content:center; color:var(--muted); font-size:.78rem; line-height:1.2; text-align:center; }
 .shift-button { display:flex; width:100%; min-width:0; min-height:56px; padding:7px 5px; justify-content:center; align-items:center; background:#222a37; color:var(--text); border:1px solid var(--line); text-align:center; }
@@ -108,12 +108,12 @@ h2 { margin:0; line-height:1.25; }
   .song-head { grid-template-columns:1fr; }
   .song-head img { width:100%; }
   .bitrate-options { grid-template-columns:1fr; }
-  .shift-grid { grid-template-columns:1fr; gap:10px; overflow:visible; padding-bottom:0; }
-  .shift-option { display:block; }
-  .shift-label { display:none; }
-  .shift-button { min-height:48px; padding:0 20px; justify-content:space-between; gap:12px; text-align:left; }
-  .shift-button-label { display:inline; font-weight:400; }
-  .shift-button strong { font-size:1rem; }
+  .shift-grid { grid-auto-columns:minmax(58px,1fr); gap:8px; overflow-x:auto; padding-bottom:4px; }
+  .shift-option { display:grid; }
+  .shift-label { display:flex; }
+  .shift-button { min-height:52px; padding:7px 5px; justify-content:center; text-align:center; }
+  .shift-button-label { display:none; }
+  .shift-button strong { font-size:.9rem; }
   .melody-controls,.stem-downloads { grid-template-columns:1fr; }
   .notation-draft-head { display:grid; }
   .notation-downloads { display:grid; grid-template-columns:1fr; justify-content:stretch; }
