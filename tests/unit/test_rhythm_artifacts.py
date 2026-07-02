@@ -35,3 +35,58 @@ def test_rhythm_artifact_paths_are_under_analysis_rhythm(tmp_path):
     assert artifacts.melody_postprocess_diagnostics_json == (
         tmp_path / "job-id" / "analysis" / "melody" / "fusion" / "postprocess_diagnostics.json"
     )
+    assert artifacts.melody_lead_selection_dir == (
+        tmp_path / "job-id" / "analysis" / "melody" / "lead_selection"
+    )
+    assert artifacts.melody_lead_selection_phrase_candidates_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "lead_selection" / "phrase_candidates.json"
+    )
+    assert artifacts.melody_lead_selection_bar_windows_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "lead_selection" / "bar_windows.json"
+    )
+    assert artifacts.melody_lead_selection_phrase_similarity_matrix_json == (
+        tmp_path
+        / "job-id"
+        / "analysis"
+        / "melody"
+        / "lead_selection"
+        / "phrase_similarity_matrix.json"
+    )
+    assert artifacts.melody_lead_selection_bar_window_similarity_matrix_json == (
+        tmp_path
+        / "job-id"
+        / "analysis"
+        / "melody"
+        / "lead_selection"
+        / "bar_window_similarity_matrix.json"
+    )
+    assert artifacts.melody_lead_selection_motif_matches_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "lead_selection" / "motif_matches.json"
+    )
+    assert artifacts.melody_lead_selection_motif_families_json == (
+        tmp_path / "job-id" / "analysis" / "melody" / "lead_selection" / "motif_families.json"
+    )
+    assert artifacts.melody_lead_selection_phrase_motif_family_summary_json == (
+        tmp_path
+        / "job-id"
+        / "analysis"
+        / "melody"
+        / "lead_selection"
+        / "phrase_motif_family_summary.json"
+    )
+    assert artifacts.melody_lead_selection_structure_pattern_groups_json == (
+        tmp_path
+        / "job-id"
+        / "analysis"
+        / "melody"
+        / "lead_selection"
+        / "structure_pattern_groups.json"
+    )
+    assert artifacts.melody_lead_selection_diagnostics_json == (
+        tmp_path
+        / "job-id"
+        / "analysis"
+        / "melody"
+        / "lead_selection"
+        / "lead_selection_diagnostics.json"
+    )

@@ -7,6 +7,8 @@ from typing import Any
 
 from app.models.rhythm import BeatGridResult, NoteDraftResult, RhythmDiagnostics, VocalOnsetEvent
 from app.services.artifacts import JobArtifacts
+from app.services.melody_lead_selection import DEFAULT_CONFIG, ALGORITHM_VERSION as LEAD_SELECTION_VERSION
+from app.services.melody_lead_selection import run_lead_selection_diagnostics
 from app.services.rhythm.beat_grid import analyze_beat_grid
 from app.services.rhythm.note_draft import (
     ALGORITHM_VERSION as NOTE_DRAFT_ALGORITHM_VERSION,
@@ -74,6 +76,7 @@ def run_rhythm_pipeline(
         onset_reused=onset_reused,
     )
     write_rhythm_diagnostics_json(diagnostics, artifacts.rhythm_diagnostics_json)
+    _try_run_lead_selection_diagnostics(artifacts, job_dir)
     result.diagnostics = diagnostics
     return result
 
@@ -81,6 +84,40 @@ def run_rhythm_pipeline(
 def write_rhythm_diagnostics_json(diagnostics: RhythmDiagnostics, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(diagnostics.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def _try_run_lead_selection_diagnostics(artifacts: JobArtifacts, job_dir: Path) -> None:
+    try:
+        run_lead_selection_diagnostics(job_dir)
+    except Exception as exc:
+        payload = {
+            "schema_version": "lead_selection.diagnostics.v1",
+            "algorithm_version": LEAD_SELECTION_VERSION,
+            "phase": "3A",
+            "num_phrases": 0,
+            "num_bar_windows": 0,
+            "num_phrase_matches": 0,
+            "num_bar_window_matches": 0,
+            "num_motif_families": 0,
+            "num_possible_key_change_matches": 0,
+            "num_possible_transposed_matches": 0,
+            "num_similarity_pairs_computed": 0,
+            "num_similarity_pairs_written": 0,
+            "similarity_output_truncated": False,
+            "full_similarity_matrix_written": bool(DEFAULT_CONFIG["write_full_similarity_matrix"]),
+            "similarity_output_min_score": float(DEFAULT_CONFIG["similarity_output_min_score"]),
+            "similarity_output_top_k_per_item": int(DEFAULT_CONFIG["similarity_output_top_k_per_item"]),
+            "possible_key_change_regions": [],
+            "transposed_motif_families": [],
+            "warnings": [],
+            "errors": [f"lead_selection_failed:{type(exc).__name__}:{str(exc)[:240]}"],
+            "config": DEFAULT_CONFIG,
+        }
+        artifacts.melody_lead_selection_diagnostics_json.parent.mkdir(parents=True, exist_ok=True)
+        artifacts.melody_lead_selection_diagnostics_json.write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _ensure_beat_grid(

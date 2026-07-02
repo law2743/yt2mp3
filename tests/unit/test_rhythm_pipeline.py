@@ -260,6 +260,30 @@ def test_vocal_onset_failure_does_not_crash_or_block_notes(tmp_path, monkeypatch
     assert any(warning.startswith("vocal_onset_failed") for warning in diagnostics["warnings"])
 
 
+def test_lead_selection_failure_does_not_crash_or_block_notes(tmp_path, monkeypatch):
+    artifacts = _artifacts(tmp_path)
+    artifacts.stems_dir.mkdir()
+    artifacts.accompaniment_wav.write_bytes(b"accompaniment")
+    artifacts.vocals_wav.write_bytes(b"vocals")
+    _write_pitch_csv(artifacts.melody_fusion_csv)
+    _patch_services(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.rhythm.pipeline.run_lead_selection_diagnostics",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    result = run_rhythm_pipeline(artifacts.root, meter_hint="4/4")
+
+    assert result.notes
+    assert artifacts.rhythm_notes_draft_json.exists()
+    assert artifacts.rhythm_notes_draft_csv.exists()
+    diagnostics = json.loads(
+        artifacts.melody_lead_selection_diagnostics_json.read_text(encoding="utf-8")
+    )
+    assert diagnostics["num_phrases"] == 0
+    assert any(error.startswith("lead_selection_failed:RuntimeError") for error in diagnostics["errors"])
+
+
 def test_force_true_regenerates_existing_artifacts(tmp_path, monkeypatch):
     artifacts = _artifacts(tmp_path)
     artifacts.stems_dir.mkdir()

@@ -151,6 +151,46 @@ class JobArtifacts:
         return safe_child(self.melody_fusion_dir, "postprocess_diagnostics.json")
 
     @property
+    def melody_lead_selection_dir(self) -> Path:
+        return safe_child(self.melody_dir, "lead_selection")
+
+    @property
+    def melody_lead_selection_phrase_candidates_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "phrase_candidates.json")
+
+    @property
+    def melody_lead_selection_bar_windows_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "bar_windows.json")
+
+    @property
+    def melody_lead_selection_phrase_similarity_matrix_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "phrase_similarity_matrix.json")
+
+    @property
+    def melody_lead_selection_bar_window_similarity_matrix_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "bar_window_similarity_matrix.json")
+
+    @property
+    def melody_lead_selection_motif_matches_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "motif_matches.json")
+
+    @property
+    def melody_lead_selection_motif_families_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "motif_families.json")
+
+    @property
+    def melody_lead_selection_phrase_motif_family_summary_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "phrase_motif_family_summary.json")
+
+    @property
+    def melody_lead_selection_structure_pattern_groups_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "structure_pattern_groups.json")
+
+    @property
+    def melody_lead_selection_diagnostics_json(self) -> Path:
+        return safe_child(self.melody_lead_selection_dir, "lead_selection_diagnostics.json")
+
+    @property
     def vocals_mono_16000_wav(self) -> Path:
         return safe_child(self.melody_fusion_dir, "vocals_mono_16000.wav")
 
